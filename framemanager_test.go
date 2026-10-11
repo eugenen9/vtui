@@ -1945,6 +1945,49 @@ func TestFrameManager_OnCtrlTabsArmAfterFirstCtrlTab(t *testing.T) {
 	}
 }
 
+// f4#1870: WorkspaceTabsWhileCtrl shows the strip for as long as Ctrl alone
+// is held, without waiting for Ctrl+Tab, and Alt+digit still switches while
+// it is up; WorkspaceTabsOnCtrl keeps waiting for Ctrl+Tab (f4#496).
+func TestFrameManager_WhileCtrlTabsShowOnPlainCtrl(t *testing.T) {
+	scr := NewSilentScreenBuf()
+	scr.AllocBuf(80, 25)
+	fm := &frameManager{}
+	fm.Init(scr)
+	fm.Push(newMockFrame(0, 0, 80, 25, false))
+	fm.AddScreenBackground(newMockFrame(0, 0, 80, 25, false))
+	fm.ConfigureWorkspaceTabs(WorkspaceTabsWhileCtrl, WorkspaceCtrlTabDirect)
+	if fm.workspaceTabsVisible() || fm.WorkspaceTopInset() != 0 {
+		t.Fatal("tabs shown before Ctrl was pressed")
+	}
+
+	fm.dispatchEvent(&vtinput.InputEvent{
+		Type:            vtinput.KeyEventType,
+		KeyDown:         true,
+		VirtualKeyCode:  vtinput.VK_CONTROL,
+		ControlKeyState: vtinput.LeftCtrlPressed,
+	}, false)
+	if !fm.workspaceTabsVisible() || fm.WorkspaceTopInset() != 1 {
+		t.Fatal("holding Ctrl alone should reveal workspace tabs in this mode")
+	}
+	fm.ConfigureWorkspaceTabOverlay(true)
+	if !fm.workspaceTabsVisible() || fm.WorkspaceTopInset() != 0 {
+		t.Fatal("as an overlay the strip stays visible and takes no row")
+	}
+	fm.ConfigureWorkspaceTabOverlay(false)
+
+	fm.dispatchEvent(&vtinput.InputEvent{
+		Type:           vtinput.KeyEventType,
+		KeyDown:        false,
+		VirtualKeyCode: vtinput.VK_CONTROL,
+	}, false)
+	if fm.workspaceTabsVisible() || fm.WorkspaceTopInset() != 0 {
+		t.Fatal("releasing Ctrl should hide workspace tabs again")
+	}
+	if got := fm.semanticWorkspaceTabs()["mode"]; got != "ctrl" {
+		t.Errorf("semantic mode = %v, want ctrl", got)
+	}
+}
+
 type resizeCountingFrame struct {
 	mockFrame
 	resizeCalls int
