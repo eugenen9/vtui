@@ -275,6 +275,7 @@ func (cw *ChatWindow) headerText(t ChatTurn) string {
 // sending Input's text on Enter. It returns false (letting a host route the
 // key elsewhere, e.g. panel switching on Tab) whenever it does not apply.
 func (cw *ChatWindow) ProcessKey(e *vtinput.InputEvent) bool {
+	e = TextInputView(e)
 	if !e.KeyDown || !cw.IsFocused() {
 		return false
 	}

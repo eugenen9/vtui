@@ -50,6 +50,9 @@ func (rb *RadioButton) DisplayObject(scr *ScreenBuf) {
 }
 
 func (rb *RadioButton) ProcessKey(e *vtinput.InputEvent) bool {
+	if e.TextInput {
+		return false
+	}
 	if !e.KeyDown || rb.IsDisabled() {
 		return false
 	}

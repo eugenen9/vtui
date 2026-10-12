@@ -56,7 +56,7 @@ func (cb *Checkbox) DisplayObject(scr *ScreenBuf) {
 }
 
 func (cb *Checkbox) ProcessKey(e *vtinput.InputEvent) bool {
-	if !e.KeyDown {
+	if !e.KeyDown || e.TextInput {
 		return false
 	}
 	if cb.IsDisabled() {
