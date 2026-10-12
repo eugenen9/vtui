@@ -166,7 +166,7 @@ func splitCovered(p ImagePlacement) []ImagePlacement {
 	out := make([]ImagePlacement, 0, len(rects))
 	for k, r := range rects {
 		c := p
-		c.ID = uint32(k+1)<<24 | p.ID // #nosec G115 -- k < maxCoverCrops.
+		c.ID = uint32(k+1)<<24 | p.ID //nolint:gosec // G115: k < maxCoverCrops
 		c.Col, c.Row = r.Min.X, r.Min.Y
 		c.Cols, c.Rows = r.Dx(), r.Dy()
 		x0 := sx + (r.Min.X-p.Col)*sw/p.Cols

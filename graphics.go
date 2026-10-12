@@ -731,7 +731,7 @@ func (g *GraphicsLayer) markLive(id uint32) {
 		}
 	}
 	g.live = append(g.live, id)
-	g.liveCount.Store(int32(len(g.live))) // #nosec G115 -- a handful of placements per frame.
+	g.liveCount.Store(int32(len(g.live))) //nolint:gosec // G115: a handful of placements per frame
 }
 
 // EndFrame drops every keyed placement that was not re-declared during the

@@ -222,7 +222,7 @@ func shadePixels(img *image.RGBA, r image.Rectangle) {
 		off := (y-b.Min.Y)*img.Stride + (r.Min.X-b.Min.X)*4
 		for x := r.Min.X; x < r.Max.X; x++ {
 			for c := 0; c < 3; c++ {
-				img.Pix[off+c] = byte(uint32(img.Pix[off+c]) * ShadeKeepNum / ShadeKeepDen)
+				img.Pix[off+c] = byte(uint32(img.Pix[off+c]) * ShadeKeepNum / ShadeKeepDen) //nolint:gosec // G115: a byte scaled by 3/8 stays a byte
 			}
 			off += 4
 		}
