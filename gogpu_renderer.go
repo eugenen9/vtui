@@ -3,6 +3,7 @@
 package vtui
 
 import (
+	"image"
 	"image/color"
 	"math"
 	"os"
@@ -898,7 +899,26 @@ func (r *GogpuRenderer) drawFrame(dc *gg.Context, w, h int) gogpuFrameStats {
 		}
 
 		dc.SetRGBA(1, 1, 1, 1)
-		dc.DrawImage(gg.ImageBufFromImage(entry.asImage()), float64(px), float64(py))
+		buf := gg.ImageBufFromImage(entry.asImage())
+		if !p.Covered.Any() {
+			dc.DrawImage(buf, float64(px), float64(py))
+			continue
+		}
+		// gg draws all text after all fills and images, whatever order
+		// they were issued in, so a picture drawn over a menu would still
+		// show the menu's text through it. Leaving the covered cells out
+		// is what keeps the menu whole (f4#1885).
+		for _, span := range uncoveredSpans(p, r.cellW, r.cellH) {
+			src := span.Sub(image.Pt(px, py))
+			dc.DrawImageEx(buf, gg.DrawImageOptions{
+				X: float64(span.Min.X), Y: float64(span.Min.Y),
+				DstWidth: float64(span.Dx()), DstHeight: float64(span.Dy()),
+				SrcRect:       &src,
+				Interpolation: gg.InterpNearest,
+				Opacity:       1.0,
+				BlendMode:     gg.BlendNormal,
+			})
+		}
 	}
 
 	cursorVisible := r.cursorVis && r.blinkState
