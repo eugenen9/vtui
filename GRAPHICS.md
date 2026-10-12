@@ -63,6 +63,11 @@ loses in a `CoverMask`; `Snapshot` hands it over as `ImagePlacement.Covered`.
   few rectangles, each a placement of its own showing the part of the source
   the whole placement shows there. A cover too ragged for `maxCoverCrops`
   holds the picture back until it clears.
+* A frame's shadow (`ApplyShadow`) shades a cell instead of covering it: the
+  native backends draw the picture there darkened to the 3/8 the shadow
+  leaves text cells; terminals, which cannot darken a picture, ignore it.
+  Painting over a shadow covers the cell; a shadow over a cover leaves it
+  covered.
 * A change in any mask bumps the generation, so every backend redraws.
 * Placements added with `Add` live outside the painting pass and are never
   covered; the order applies to `DrawImage` only.

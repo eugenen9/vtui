@@ -20,8 +20,9 @@ const nativeWorkMargin = 0.25
 const nativeWorkMaxZoom = 2.0
 
 type nativeCacheEntry struct {
-	surf *ImageSurface
-	rgba *image.RGBA
+	surf   *ImageSurface
+	rgba   *image.RGBA
+	shaded *image.RGBA
 }
 
 // nativeGraphicsCache keeps surfaces already resampled to their on screen
@@ -197,6 +198,37 @@ func (e *nativeCacheEntry) asImage() *image.RGBA {
 	return e.rgba
 }
 
+// asShadedImage is asImage darkened as a shadow darkens it, for backends
+// that cannot darken what they already drew (see gogpu's shadePlacement).
+func (e *nativeCacheEntry) asShadedImage() *image.RGBA {
+	if e == nil {
+		return nil
+	}
+	if e.shaded == nil {
+		src := e.asImage()
+		e.shaded = image.NewRGBA(src.Rect)
+		copy(e.shaded.Pix, src.Pix)
+		shadePixels(e.shaded, e.shaded.Rect)
+	}
+	return e.shaded
+}
+
+// shadePixels darkens the pixels of r to the 3/8 ApplyShadow leaves text
+// cells.
+func shadePixels(img *image.RGBA, r image.Rectangle) {
+	b := img.Bounds()
+	r = r.Intersect(b)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		off := (y-b.Min.Y)*img.Stride + (r.Min.X-b.Min.X)*4
+		for x := r.Min.X; x < r.Max.X; x++ {
+			for c := 0; c < 3; c++ {
+				img.Pix[off+c] = byte(uint32(img.Pix[off+c]) * ShadeKeepNum / ShadeKeepDen)
+			}
+			off += 4
+		}
+	}
+}
+
 // placementPixelRect converts a cell rectangle into device pixels.
 func placementPixelRect(p *ImagePlacement, cellW, cellH int) (x, y, w, h int) {
 	if p == nil || cellW <= 0 || cellH <= 0 {
@@ -294,29 +326,48 @@ func drawNativePlacements(dst *image.RGBA, list []ImagePlacement, cellW, cellH i
 		if entry == nil {
 			continue
 		}
-		if !p.Covered.Any() {
+		if !p.Covered.AnyCovered() {
 			union = union.Union(blitSurface(dst, entry.surf, px, py))
-			continue
+		} else {
+			for _, r := range uncoveredSpans(p, cellW, cellH) {
+				union = union.Union(blitSurfaceClipped(dst, entry.surf, px, py, r))
+			}
 		}
-		for _, r := range uncoveredSpans(p, cellW, cellH) {
-			union = union.Union(blitSurfaceClipped(dst, entry.surf, px, py, r))
-		}
+		shadePlacement(dst, p, cellW, cellH)
 	}
 	return union
+}
+
+// shadePlacement darkens the picture's pixels in the cells a shadow fell on,
+// by the factor ApplyShadow darkens text cells with. It runs right after the
+// blit, on freshly copied pixels, so repeated redraws do not compound.
+func shadePlacement(dst *image.RGBA, p *ImagePlacement, cellW, cellH int) {
+	if p.Covered == nil || p.Covered.shaded == 0 {
+		return
+	}
+	for _, r := range cellSpans(p, cellW, cellH, p.Covered.Shaded) {
+		shadePixels(dst, r)
+	}
 }
 
 // uncoveredSpans splits a placement into the device rectangles, one per run
 // of uncovered cells in a row, where the picture may be drawn.
 func uncoveredSpans(p *ImagePlacement, cellW, cellH int) []image.Rectangle {
+	return cellSpans(p, cellW, cellH, func(col, row int) bool { return !p.Covered.Covered(col, row) })
+}
+
+// cellSpans is the device rectangles of the runs of cells, row by row, that
+// want accepts.
+func cellSpans(p *ImagePlacement, cellW, cellH int, want func(col, row int) bool) []image.Rectangle {
 	var spans []image.Rectangle
 	for row := p.Row; row < p.Row+p.Rows; row++ {
 		for col := p.Col; col < p.Col+p.Cols; {
-			if p.Covered.Covered(col, row) {
+			if !want(col, row) {
 				col++
 				continue
 			}
 			start := col
-			for col < p.Col+p.Cols && !p.Covered.Covered(col, row) {
+			for col < p.Col+p.Cols && want(col, row) {
 				col++
 			}
 			spans = append(spans, image.Rect(start*cellW, row*cellH, col*cellW, (row+1)*cellH))

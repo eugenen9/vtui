@@ -315,7 +315,7 @@ func (s *ScreenBuf) ApplyShadow(x1, y1, x2, y2 int) {
 		return
 	}
 
-	s.graphics.coverCells(x1, y1, x2, y2)
+	s.graphics.shadeCells(x1, y1, x2, y2)
 	for y := y1; y <= y2; y++ {
 		offset := y*s.width + x1
 		for x := 0; x <= x2-x1; x++ {

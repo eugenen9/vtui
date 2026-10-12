@@ -624,8 +624,9 @@ func (g *GraphicsLayer) Invalidate() {
 // Snapshot copies the placements into dst (which may be reused between
 // frames) sorted back to front, and returns the current generation. Each
 // copy carries its Covered mask. The native protocol draws around covered
-// cells; every other transport cannot cut a picture per cell, so a partly
-// covered placement reaches it as crops of its uncovered rectangles.
+// cells and darkens shaded ones; every other transport cannot cut a picture
+// per cell, so a partly covered placement reaches it as crops of its
+// uncovered rectangles, and a shadow is ignored.
 func (g *GraphicsLayer) Snapshot(dst []ImagePlacement) ([]ImagePlacement, uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -634,10 +635,10 @@ func (g *GraphicsLayer) Snapshot(dst []ImagePlacement) ([]ImagePlacement, uint64
 	for _, p := range g.placements {
 		p.Covered = g.covers[p.ID]
 		switch {
-		case !p.Covered.Any():
-			dst = append(dst, p)
 		case p.Covered.Full():
-		case native:
+		case native || !p.Covered.AnyCovered():
+			// A terminal cannot darken a picture, so a shadow alone
+			// leaves it whole there.
 			dst = append(dst, p)
 		default:
 			dst = append(dst, splitCovered(p)...)

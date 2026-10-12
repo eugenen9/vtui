@@ -11,56 +11,102 @@ import "image"
 // protocols get the uncovered part as a few rectangular crops of the picture
 // (see splitCovered).
 
-// CoverMask records the cells of a placement that something painted later
-// covers. Coordinates are screen cells, like the placement's own.
+// CoverMask records what lies over the cells of a placement. A cell is open,
+// shaded — a frame's shadow fell on it, so the picture shows there darkened —
+// or covered, and then the picture does not show at all. Coordinates are
+// screen cells, like the placement's own.
 type CoverMask struct {
 	Col, Row   int
 	Cols, Rows int
-	bits       []bool
-	count      int
+	cells      []cellCover
+	covered    int
+	shaded     int
 }
+
+type cellCover uint8
+
+const (
+	cellOpen cellCover = iota
+	cellShaded
+	cellCovered
+)
+
+// ShadeKeep is how much of the picture's colour a shaded cell keeps, as a
+// fraction: the 3/8 ApplyShadow applies to the text grid.
+const (
+	ShadeKeepNum = 3
+	ShadeKeepDen = 8
+)
 
 func newCoverMask(p *ImagePlacement) *CoverMask {
 	if p.Cols <= 0 || p.Rows <= 0 {
 		return nil
 	}
-	return &CoverMask{Col: p.Col, Row: p.Row, Cols: p.Cols, Rows: p.Rows, bits: make([]bool, p.Cols*p.Rows)}
+	return &CoverMask{Col: p.Col, Row: p.Row, Cols: p.Cols, Rows: p.Rows, cells: make([]cellCover, p.Cols*p.Rows)}
+}
+
+func (m *CoverMask) at(col, row int) cellCover {
+	if m == nil {
+		return cellOpen
+	}
+	x, y := col-m.Col, row-m.Row
+	if x < 0 || y < 0 || x >= m.Cols || y >= m.Rows {
+		return cellOpen
+	}
+	return m.cells[y*m.Cols+x]
 }
 
 // Covered reports whether the cell at screen position (col, row) is covered.
 // A nil mask covers nothing.
-func (m *CoverMask) Covered(col, row int) bool {
-	if m == nil {
-		return false
-	}
-	x, y := col-m.Col, row-m.Row
-	if x < 0 || y < 0 || x >= m.Cols || y >= m.Rows {
-		return false
-	}
-	return m.bits[y*m.Cols+x]
-}
+func (m *CoverMask) Covered(col, row int) bool { return m.at(col, row) == cellCovered }
 
-// Any reports whether at least one cell is covered.
-func (m *CoverMask) Any() bool { return m != nil && m.count > 0 }
+// Shaded reports whether a shadow fell on the cell at (col, row) and nothing
+// covered it after that.
+func (m *CoverMask) Shaded(col, row int) bool { return m.at(col, row) == cellShaded }
+
+// Any reports whether at least one cell is covered or shaded.
+func (m *CoverMask) Any() bool { return m != nil && m.covered+m.shaded > 0 }
+
+// AnyCovered reports whether at least one cell is covered.
+func (m *CoverMask) AnyCovered() bool { return m != nil && m.covered > 0 }
 
 // Full reports whether every cell is covered, leaving nothing to draw.
-func (m *CoverMask) Full() bool { return m != nil && m.count == len(m.bits) }
+func (m *CoverMask) Full() bool { return m != nil && m.covered == len(m.cells) }
 
-// cover marks the cells of the screen rectangle (x1,y1)-(x2,y2) that fall
-// inside the mask.
-func (m *CoverMask) cover(x1, y1, x2, y2 int) {
+// mark sets the cells of the screen rectangle (x1,y1)-(x2,y2) that fall
+// inside the mask to state. A shadow does not lift a cover: a shadow falling
+// on a menu over the picture darkens the menu, not the picture.
+func (m *CoverMask) mark(x1, y1, x2, y2 int, state cellCover) {
 	x1, y1 = max(x1, m.Col), max(y1, m.Row)
 	x2, y2 = min(x2, m.Col+m.Cols-1), min(y2, m.Row+m.Rows-1)
 	for y := y1; y <= y2; y++ {
 		row := (y - m.Row) * m.Cols
 		for x := x1; x <= x2; x++ {
-			if i := row + x - m.Col; !m.bits[i] {
-				m.bits[i] = true
-				m.count++
+			i := row + x - m.Col
+			old := m.cells[i]
+			if old == state || (old == cellCovered && state == cellShaded) {
+				continue
 			}
+			switch old {
+			case cellCovered:
+				m.covered--
+			case cellShaded:
+				m.shaded--
+			}
+			switch state {
+			case cellCovered:
+				m.covered++
+			case cellShaded:
+				m.shaded++
+			}
+			m.cells[i] = state
 		}
 	}
 }
+
+func (m *CoverMask) cover(x1, y1, x2, y2 int) { m.mark(x1, y1, x2, y2, cellCovered) }
+
+func (m *CoverMask) shade(x1, y1, x2, y2 int) { m.mark(x1, y1, x2, y2, cellShaded) }
 
 // uncoveredRects splits the uncovered cells into rectangles: a run of
 // uncovered cells per row, and runs with the same columns in consecutive rows
@@ -141,11 +187,11 @@ func (m *CoverMask) equal(o *CoverMask) bool {
 	if !m.Any() || !o.Any() {
 		return m.Any() == o.Any()
 	}
-	if m.Col != o.Col || m.Row != o.Row || m.Cols != o.Cols || m.Rows != o.Rows || m.count != o.count {
+	if m.Col != o.Col || m.Row != o.Row || m.Cols != o.Cols || m.Rows != o.Rows || m.covered != o.covered || m.shaded != o.shaded {
 		return false
 	}
-	for i := range m.bits {
-		if m.bits[i] != o.bits[i] {
+	for i := range m.cells {
+		if m.cells[i] != o.cells[i] {
 			return false
 		}
 	}
@@ -156,7 +202,13 @@ func (m *CoverMask) equal(o *CoverMask) bool {
 // just painted. Every placement declared earlier in the current pass loses
 // those cells. Outside a painting pass, or before the first DrawImage of
 // one, it costs a single atomic load.
-func (g *GraphicsLayer) coverCells(x1, y1, x2, y2 int) {
+func (g *GraphicsLayer) coverCells(x1, y1, x2, y2 int) { g.markCells(x1, y1, x2, y2, cellCovered) }
+
+// shadeCells is ScreenBuf's report that a frame's shadow fell on the
+// rectangle: the pictures under it show there darkened, not cut out.
+func (g *GraphicsLayer) shadeCells(x1, y1, x2, y2 int) { g.markCells(x1, y1, x2, y2, cellShaded) }
+
+func (g *GraphicsLayer) markCells(x1, y1, x2, y2 int, state cellCover) {
 	if g.liveCount.Load() == 0 || x1 > x2 || y1 > y2 {
 		return
 	}
@@ -174,7 +226,7 @@ func (g *GraphicsLayer) coverCells(x1, y1, x2, y2 int) {
 			}
 			g.pendingCovers[id] = m
 		}
-		m.cover(x1, y1, x2, y2)
+		m.mark(x1, y1, x2, y2, state)
 	}
 }
 
