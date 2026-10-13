@@ -15,6 +15,9 @@ func confirmedText(vk uint16, char rune) *vtinput.InputEvent {
 }
 
 func TestTextInputViewPreservesOriginal(t *testing.T) {
+	if TextInputView(nil) != nil {
+		t.Fatal("nil event acquired a text view")
+	}
 	event := confirmedText(vtinput.VK_E, '€')
 	original := *event
 	view := TextInputView(event)
@@ -27,6 +30,132 @@ func TestTextInputViewPreservesOriginal(t *testing.T) {
 	event.TextInput = false
 	if TextInputView(event) != event {
 		t.Fatal("ordinary shortcut was rewritten")
+	}
+}
+
+func TestGUITextInputRuneCommitConsumesUTF16Units(t *testing.T) {
+	var state guiTextInput
+	key := confirmedText(vtinput.VK_E, 0)
+	state.press(key, 2)
+	plain := *key
+	plain.VirtualKeyCode, plain.ControlKeyState, plain.TextInput = vtinput.VK_A, 0, false
+	state.press(&plain, 1)
+	fallback := vtinput.InputEvent{VirtualScanCode: key.VirtualScanCode}
+	for _, char := range []rune{0, '\n', 0x7f} {
+		if event := state.commit(char, fallback); event != nil {
+			t.Fatalf("control character emitted: %+v", event)
+		}
+	}
+	if event := state.commit('😀', fallback); event.Char != '😀' || !event.TextInput || event.VirtualKeyCode != vtinput.VK_E {
+		t.Fatalf("supplementary commit lost source: %+v", event)
+	}
+	if event := state.commit('a', fallback); event.TextInput || event.VirtualKeyCode != vtinput.VK_A {
+		t.Fatalf("supplementary rune did not consume both UTF-16 units: %+v", event)
+	}
+	if len(state.pending) != 0 {
+		t.Fatal("consumed presses retained")
+	}
+	// An IME can commit without any physical press in the queue.
+	fallback = *confirmedText(0, 0)
+	fallback.RepeatCount = 2
+	if event := state.commit('界', fallback); event.Char != '界' || event.VirtualKeyCode != 0 ||
+		event.RepeatCount != 2 || event.InputSource != fallback.InputSource || !event.TextInput {
+		t.Fatalf("keyless fallback lost metadata: %+v", event)
+	}
+}
+
+func TestGUITextInputCommitMatchesScanWithoutConsumingOtherKeys(t *testing.T) {
+	var state guiTextInput
+	first := confirmedText(vtinput.VK_Q, 0)
+	first.VirtualScanCode = 16
+	second := &vtinput.InputEvent{Type: vtinput.KeyEventType, KeyDown: true,
+		VirtualKeyCode: vtinput.VK_A, VirtualScanCode: 30, RepeatCount: 1}
+	state.press(first, 1)
+	state.press(second, 1)
+	// A different scan may commit first, or an IME may have no matching key.
+	if event := state.commit('界', vtinput.InputEvent{}); event.VirtualKeyCode != 0 || event.Char != '界' {
+		t.Fatalf("keyless commit stole a queued key: %+v", event)
+	}
+	if event := state.commit('a', vtinput.InputEvent{VirtualScanCode: 30}); event.VirtualKeyCode != vtinput.VK_A || event.TextInput {
+		t.Fatalf("commit paired with wrong scan: %+v", event)
+	}
+	if event := state.commit('@', vtinput.InputEvent{VirtualScanCode: 16}); event.VirtualKeyCode != vtinput.VK_Q || !event.TextInput {
+		t.Fatalf("earlier source was consumed by a different key: %+v", event)
+	}
+	if len(state.pending) != 0 {
+		t.Fatal("consumed presses retained")
+	}
+}
+
+func TestConfirmedTextCannotToggleControls(t *testing.T) {
+	checkbox := NewCheckbox(0, 0, "&Option", false)
+	radio := NewRadioButton(0, 0, "&Option", false)
+	group := NewRadioGroup(0, 0, 1, []string{"First", "Second"})
+	group.focusIdx = 1
+	for _, tc := range []struct {
+		name     string
+		process  func(*vtinput.InputEvent) bool
+		selected func() bool
+	}{
+		{"checkbox", checkbox.ProcessKey, func() bool { return checkbox.State != 0 }},
+		{"radio button", radio.ProcessKey, func() bool { return radio.Selected }},
+		{"radio group", group.ProcessKey, func() bool { return group.Selected != 0 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := confirmedText(vtinput.VK_SPACE, ' ')
+			if tc.process(event) || tc.selected() {
+				t.Fatal("committed space selected a control")
+			}
+			event.TextInput, event.ControlKeyState = false, 0
+			if !tc.process(event) || !tc.selected() {
+				t.Fatal("ordinary Space no longer selects the control")
+			}
+		})
+	}
+}
+
+func TestConfirmedTextCannotZoomWindow(t *testing.T) {
+	window := NewBaseWindow(2, 2, 30, 10, "Text")
+	window.ShowZoom = true
+	event := confirmedText(vtinput.VK_F5, '€')
+	if window.ProcessKey(event) || window.SavedBounds != nil {
+		t.Fatal("committed text activated F5 zoom")
+	}
+	event.TextInput, event.ControlKeyState = false, 0
+	if !window.ProcessKey(event) || window.SavedBounds == nil {
+		t.Fatal("ordinary F5 no longer zooms the window")
+	}
+}
+
+func TestConfirmedTextSkipsListShortcutAndSelection(t *testing.T) {
+	list := NewListBox(0, 0, 20, 5, []string{"First", "Second"})
+	list.MultiSelect = true
+	called := 0
+	list.OnKeyDown = func(*vtinput.InputEvent) bool { called++; return false }
+	event := confirmedText(vtinput.VK_INSERT, '€')
+	list.ProcessKey(event)
+	if called != 0 || len(list.SelectedMap) != 0 || list.SelectPos != 0 {
+		t.Fatal("committed text triggered a list command")
+	}
+	event.TextInput, event.ControlKeyState = false, 0
+	list.ProcessKey(event)
+	if called != 1 || !list.SelectedMap[0] || list.SelectPos != 1 {
+		t.Fatal("ordinary Insert no longer selects and advances")
+	}
+}
+
+func TestConfirmedTextRepeatEditsMenuFilterOnly(t *testing.T) {
+	menu := newFilterMenu("€€€uro", "Other")
+	menu.FilterOnType = true
+	menu.OnKeyDown = func(*vtinput.InputEvent) bool { t.Fatal("text reached shortcut callback"); return false }
+	event := confirmedText(vtinput.VK_RETURN, '€')
+	event.RepeatCount = 3
+	original := *event
+	if !menu.ProcessKey(event) || menu.FilterText() != "€€€" || menu.IsDone() {
+		t.Fatalf("repeated text did not stay in filter: %q, done=%v", menu.FilterText(), menu.IsDone())
+	}
+	if !reflect.DeepEqual(*event, original) {
+		t.Fatal("menu mutated the source event")
 	}
 }
 

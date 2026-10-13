@@ -708,55 +708,7 @@ func RunGogpuHost(cols, rows int, fontName string, fontSize float64, setupApp fu
 
 		app.EventSource().OnTextInput(host.handleTextInput)
 
-		app.EventSource().OnKeyRelease(func(key gpucontext.Key, mods gpucontext.Modifiers) {
-			host.mu.Lock()
-			currMods := host.syncMods(key, mods, false)
-
-			vk := gogpuKeyToVK(key, currMods)
-			if vk == 0 {
-				DebugLog("GOGPU_HOST_EVENT: OnKeyRelease UNMAPPED key=%v", key)
-			}
-
-			if host.pendingKeyEvent != nil {
-				if host.pendingKeyTimer != nil {
-					host.pendingKeyTimer.Stop()
-				}
-				if host.pendingKeyEvent.Char == 0 && host.lastRuneForVK != nil {
-					host.pendingKeyEvent.Char = host.lastRuneForVK[host.pendingKeyEvent.VirtualKeyCode]
-				}
-				host.sendEvent(host.pendingKeyEvent)
-				host.pendingKeyEvent = nil
-			}
-
-			host.mu.Unlock()
-
-			if vk == 0 {
-				return
-			}
-			// The FrameManager derives Ctrl-held from a Ctrl key-up's virtual key
-			// alone, ignoring ControlKeyState, so a key-up on one Ctrl channel
-			// while the other still holds Ctrl would read as a full release
-			// mid-chord — the Switcher commits its selection on exactly that.
-			// With the channel split this fires only when Cmd and a physical
-			// Ctrl are genuinely held together; gogpu's darwin layer reports a
-			// modifier release only once the aggregate flag clears, so keys
-			// sharing one channel never produce a mid-hold release. Only where
-			// the fold is active: macOS reports the post-change flags on the
-			// modifier's own event, while on Wayland the modifiers event trails
-			// the key event, so a genuine final Ctrl release still carries the
-			// Ctrl bit and would be swallowed here.
-			if gogpuCmdIsCtrl && (vk == vtinput.VK_LCONTROL || vk == vtinput.VK_RCONTROL) &&
-				currMods&(vtinput.LeftCtrlPressed|vtinput.RightCtrlPressed) != 0 {
-				DebugLog("GOGPU_HOST_EVENT: withheld Ctrl key-up, Ctrl still held (key=%v)", key)
-				return
-			}
-			host.sendEvent(&vtinput.InputEvent{
-				Type:            vtinput.KeyEventType,
-				KeyDown:         false,
-				VirtualKeyCode:  vk,
-				ControlKeyState: currMods,
-			})
-		})
+		app.EventSource().OnKeyRelease(host.handleKeyRelease)
 
 	}
 
@@ -1437,4 +1389,54 @@ func (host *GogpuHost) handleKeyPress(key gpucontext.Key, mods gpucontext.Modifi
 		}
 	}
 	host.mu.Unlock()
+}
+
+func (host *GogpuHost) handleKeyRelease(key gpucontext.Key, mods gpucontext.Modifiers) {
+	host.mu.Lock()
+	currMods := host.syncMods(key, mods, false)
+
+	vk := gogpuKeyToVK(key, currMods)
+	if vk == 0 {
+		DebugLog("GOGPU_HOST_EVENT: OnKeyRelease UNMAPPED key=%v", key)
+	}
+
+	if host.pendingKeyEvent != nil {
+		if host.pendingKeyTimer != nil {
+			host.pendingKeyTimer.Stop()
+		}
+		if host.pendingKeyEvent.Char == 0 && host.lastRuneForVK != nil {
+			host.pendingKeyEvent.Char = host.lastRuneForVK[host.pendingKeyEvent.VirtualKeyCode]
+		}
+		host.sendEvent(host.pendingKeyEvent)
+		host.pendingKeyEvent = nil
+	}
+
+	host.mu.Unlock()
+
+	if vk == 0 {
+		return
+	}
+	// The FrameManager derives Ctrl-held from a Ctrl key-up's virtual key
+	// alone, ignoring ControlKeyState, so a key-up on one Ctrl channel
+	// while the other still holds Ctrl would read as a full release
+	// mid-chord — the Switcher commits its selection on exactly that.
+	// With the channel split this fires only when Cmd and a physical
+	// Ctrl are genuinely held together; gogpu's darwin layer reports a
+	// modifier release only once the aggregate flag clears, so keys
+	// sharing one channel never produce a mid-hold release. Only where
+	// the fold is active: macOS reports the post-change flags on the
+	// modifier's own event, while on Wayland the modifiers event trails
+	// the key event, so a genuine final Ctrl release still carries the
+	// Ctrl bit and would be swallowed here.
+	if gogpuCmdIsCtrl && (vk == vtinput.VK_LCONTROL || vk == vtinput.VK_RCONTROL) &&
+		currMods&(vtinput.LeftCtrlPressed|vtinput.RightCtrlPressed) != 0 {
+		DebugLog("GOGPU_HOST_EVENT: withheld Ctrl key-up, Ctrl still held (key=%v)", key)
+		return
+	}
+	host.sendEvent(&vtinput.InputEvent{
+		Type:            vtinput.KeyEventType,
+		KeyDown:         false,
+		VirtualKeyCode:  vk,
+		ControlKeyState: currMods,
+	})
 }

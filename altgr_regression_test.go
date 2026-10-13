@@ -3,11 +3,43 @@
 package vtui
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/gogpu/gogpu"
 	"github.com/unxed/vtinput"
 )
+
+func TestGogpuNativeEventsPreserveSource(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		native gogpu.NativeKeyEvent
+		char   rune
+		down   bool
+	}{
+		{"unknown translation keeps command", gogpu.NativeKeyEvent{Kind: gogpu.NativeKeyDown, VirtualKeyCode: vtinput.VK_A}, 'a', true},
+		{"translated physical character", gogpu.NativeKeyEvent{Kind: gogpu.NativeKeyDown, VirtualKeyCode: vtinput.VK_A, Char: 'ф'}, 'ф', true},
+		{"keyless IME commit", gogpu.NativeKeyEvent{Kind: gogpu.NativeTextCommit, Char: '界', TextInput: true}, '界', true},
+		{"release never synthesizes character", gogpu.NativeKeyEvent{Kind: gogpu.NativeKeyUp, VirtualKeyCode: vtinput.VK_A, TextExpected: gogpu.NativeTextExpected}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &vtinput.Reader{EventChan: make(chan *vtinput.InputEvent, 8)}
+			host := &GogpuHost{reader: reader, currentMods: vtinput.LeftAltPressed}
+			native := tc.native
+			native.VirtualScanCode, native.RepeatCount = 30, 3
+			native.ControlKeyState = uint32(vtinput.RightAltPressed | vtinput.LeftCtrlPressed | vtinput.NumLockOn)
+			host.handleNativeKey(native)
+			want := vtinput.InputEvent{Type: vtinput.KeyEventType, KeyDown: tc.down,
+				VirtualKeyCode: native.VirtualKeyCode, VirtualScanCode: 30, RepeatCount: 3,
+				ControlKeyState: vtinput.ControlKeyState(native.ControlKeyState), Char: tc.char,
+				TextInput: native.TextInput, InputSource: "gogpu"}
+			if got := takeHostEvent(t, host); !reflect.DeepEqual(*got, want) {
+				t.Fatalf("native event = %+v, want %+v", got, want)
+			}
+			noHostEvent(t, host)
+		})
+	}
+}
 
 func TestGogpuCommittedAltGrTextReachesEdit(t *testing.T) {
 	reader := &vtinput.Reader{EventChan: make(chan *vtinput.InputEvent, 8)}
