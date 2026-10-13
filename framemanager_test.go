@@ -1268,23 +1268,14 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	}()
 
 	// Wait for loop and polling goroutine to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Change mock size to trigger polling mechanism
 	mockW.Store(100)
 	mockH.Store(30)
 
-	// Wait for the polling interval (200ms) + buffer time.
-	// On busy CI runners (especially macOS), the polling goroutine may not
-	// get scheduled immediately. Retry a few times with increasing delays.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if f1.resizedW == 100 && f1.resizedH == 30 &&
-			scr.Width() == 100 && scr.Height() == 30 {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	// Wait for the polling interval (200ms) + buffer time
+	time.Sleep(300 * time.Millisecond)
 
 	fm.Stop()
 	pw.Close()
