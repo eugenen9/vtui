@@ -1291,7 +1291,7 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	case <-sizeRead:
 	case <-time.After(2 * time.Second):
 		fm.Stop()
-		pw.Close()
+		_ = pw.Close()
 		<-done
 		t.Fatal("terminal-size poller did not take its initial sample")
 	}
@@ -1304,7 +1304,7 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	case <-resized:
 	case <-time.After(2 * time.Second):
 		fm.Stop()
-		pw.Close()
+		_ = pw.Close()
 		<-done
 		t.Fatal("terminal-size poller did not resize the frame")
 	}
