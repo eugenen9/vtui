@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,12 +35,11 @@ func TestReplaySession_Golden(t *testing.T) {
 	}
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
-			f, err := os.Open(p)
+			data, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer f.Close()
-			if err := replaySession(f, true, 0.0); err != nil {
+			if err := replaySession(bytes.NewReader(data), true, 0.0); err != nil {
 				t.Fatalf("replay %s: %v", p, err)
 			}
 		})
