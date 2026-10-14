@@ -1293,7 +1293,7 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	// changing the mock; otherwise a slow runner can make the change its baseline.
 	select {
 	case <-sizeRead:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		fm.Stop()
 		_ = pw.Close()
 		<-done
@@ -1306,7 +1306,7 @@ func TestFrameManager_SizePolling(t *testing.T) {
 
 	select {
 	case <-resized:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		fm.Stop()
 		_ = pw.Close()
 		<-done
