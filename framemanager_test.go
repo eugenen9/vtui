@@ -3327,8 +3327,11 @@ func TestFrameManager_WaitFar2lResponse_NilEvent(t *testing.T) {
 		fm.EventChan <- nil
 		time.Sleep(10 * time.Millisecond)
 
+		// Poll until the waiter registers, bounded by a deadline rather than
+		// an iteration count: on an overloaded runner 100 x 1ms sleeps can
+		// outlast a short WaitFar2lResponse timeout and the reply is lost.
 		var ch chan *vtinput.Far2lStack
-		for i := 0; i < 100; i++ {
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 			fm.far2lMu.Lock()
 			if fm.pendingFar2l != nil {
 				ch = fm.pendingFar2l[42]
@@ -3346,7 +3349,9 @@ func TestFrameManager_WaitFar2lResponse_NilEvent(t *testing.T) {
 	}()
 
 	// WaitFar2lResponse should skip nil without panicking and return valid response
-	res := fm.WaitFar2lResponse(42, 150*time.Millisecond)
+	// The reply arrives as soon as the waiter registers, so a generous
+	// timeout costs nothing on a healthy run.
+	res := fm.WaitFar2lResponse(42, 5*time.Second)
 	if res == nil {
 		t.Error("WaitFar2lResponse returned nil, expected valid response after skipping nil event")
 	}
