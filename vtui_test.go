@@ -150,6 +150,21 @@ func TestFrame_CloseButtonRendering(t *testing.T) {
 	checkCell(t, scr, 23, 5, uint64(UIStrings.CloseBrackets[1]), controlAttr)
 }
 
+func TestFrame_CloseButtonRoundedStyleUsesCloseSymbolWithoutBrackets(t *testing.T) {
+	roundedButtonEnv(t, "gogpu", GlyphStyleRounded)
+	SetDefaultPalette()
+	scr := NewSilentScreenBuf()
+	scr.AllocBuf(40, 10)
+	frame := NewBorderedFrame(5, 5, 25, 10, DoubleBox, "")
+	frame.ShowClose = true
+	frame.DisplayObject(scr)
+
+	controlAttr := withForeground(Palette[ColDialogBox], Palette[ColDialogBoxTitle])
+	checkCell(t, scr, 21, 5, ' ', controlAttr)
+	checkCell(t, scr, 22, 5, uint64(EffectiveCloseSymbol()), controlAttr)
+	checkCell(t, scr, 23, 5, ' ', controlAttr)
+}
+
 func TestWindow_ZoomButtonUsesTitleForeground(t *testing.T) {
 	SetDefaultPalette()
 	scr := NewSilentScreenBuf()
