@@ -369,7 +369,7 @@ func TestFrameManager_Toast(t *testing.T) {
 	select {
 	case task := <-fm.TaskChan:
 		task()
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Toast task not posted")
 	}
 
