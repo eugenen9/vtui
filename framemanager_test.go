@@ -1252,11 +1252,15 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	mockW.Store(80)
 	mockH.Store(24)
 	GetTerminalSize = func() (int, int, error) {
+		// Read the size before signalling: if the signal went first, the test
+		// could store 100x30 before this call loads it, the poller would take
+		// 100x30 as its baseline and never see a change.
+		w, h := int(mockW.Load()), int(mockH.Load())
 		select {
 		case sizeRead <- struct{}{}:
 		default:
 		}
-		return int(mockW.Load()), int(mockH.Load()), nil
+		return w, h, nil
 	}
 
 	fm := &frameManager{}
