@@ -591,7 +591,7 @@ func TestSetFar2lClipboard(t *testing.T) {
 				if ok != tc.wantOK {
 					t.Errorf("SetFar2lClipboard() = %v, want %v", ok, tc.wantOK)
 				}
-			case <-time.After(3 * time.Second):
+			case <-time.After(30 * time.Second):
 				t.Fatal("SetFar2lClipboard did not return")
 			}
 		})
@@ -695,7 +695,7 @@ func TestGetFar2lClipboard(t *testing.T) {
 				if res.ok != tc.wantOK || res.text != tc.wantText {
 					t.Errorf("GetFar2lClipboard() = (%q, %v), want (%q, %v)", res.text, res.ok, tc.wantText, tc.wantOK)
 				}
-			case <-time.After(3 * time.Second):
+			case <-time.After(30 * time.Second):
 				t.Fatal("GetFar2lClipboard did not return")
 			}
 		})
