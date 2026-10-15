@@ -333,7 +333,7 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 
 	SetDefaultPalette()
 	table := NewTable(0, 0, 10, 5, nil)
-	table.SetRows([]TableRow{{col1: "a"}, {col1: "b"}, {col1: "c"}})
+	table.SetRows([]TableRow{mockRow{col1: "a"}, mockRow{col1: "b"}, mockRow{col1: "c"}})
 	menu := NewVMenu("old")
 	menu.AddItem(MenuItem{Text: "first"})
 	menu.AddItem(MenuItem{Text: "second"})
