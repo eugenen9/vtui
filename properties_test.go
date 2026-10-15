@@ -332,6 +332,11 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 	}
 
 	SetDefaultPalette()
+	table := NewTable(0, 0, 10, 5, nil)
+	table.SetRows([]TableRow{mockRow{"a"}, mockRow{"b"}, mockRow{"c"}})
+	menu := NewVMenu("old")
+	menu.AddItem(MenuItem{Text: "first"})
+	menu.AddItem(MenuItem{Text: "second"})
 	widgets := []widgetCase{
 		{name: "BorderedFrame", widget: NewBorderedFrame(0, 0, 10, 5, 2, "old"), properties: []propertyCase{
 			{"boxType", PropValInt(3), PropValInt(3)},
@@ -340,8 +345,8 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 		}},
 		{name: "CheckGroup", widget: NewCheckGroup(0, 0, 2, []string{"a"}), properties: []propertyCase{
 			{"columns", PropValInt(3), PropValInt(3)},
-			{"data", PropValInt(2), PropValInt(2)},
 			{"items", PropValStringList([]string{"x", "y"}), PropValStringList([]string{"x", "y"})},
+			{"data", PropValInt(2), PropValInt(2)},
 		}},
 		{name: "ComboBox", widget: NewComboBox(0, 0, 10, []string{"a"}), properties: []propertyCase{
 			{"dropdownOnly", PropValBool(true), PropValBool(true)},
@@ -369,7 +374,7 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 			{"connectLeft", PropValBool(true), PropValBool(true)},
 			{"connectRight", PropValBool(true), PropValBool(true)},
 		}},
-		{name: "Table", widget: NewTable(0, 0, 10, 5, nil), properties: []propertyCase{
+		{name: "Table", widget: table, properties: []propertyCase{
 			{"quickSearch", PropValBool(true), PropValBool(true)},
 			{"selected", PropValInt(2), PropValInt(2)},
 			{"showHeader", PropValBool(true), PropValBool(true)},
@@ -379,7 +384,7 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 		{name: "Text", widget: NewText(0, 0, "old", 0), properties: []propertyCase{
 			{"text", PropValString("new"), PropValString("new")},
 		}},
-		{name: "VMenu", widget: NewVMenu("old"), properties: []propertyCase{
+		{name: "VMenu", widget: menu, properties: []propertyCase{
 			{"selected", PropValInt(1), PropValInt(1)},
 			{"title", PropValString("new"), PropValString("new")},
 		}},
