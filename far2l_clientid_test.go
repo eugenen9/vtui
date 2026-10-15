@@ -3,6 +3,7 @@ package vtui
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -76,6 +77,16 @@ func TestValidFar2lClientID(t *testing.T) {
 }
 
 func TestFar2lClientID_Cached(t *testing.T) {
+	// Keep the test out of the real user config directory on every platform.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	resetFar2lClientID := func() {
+		far2lClientIDOnce = sync.Once{}
+		far2lClientIDValue = ""
+	}
+	resetFar2lClientID()
+	t.Cleanup(resetFar2lClientID)
 	if a, b := far2lClientID(), far2lClientID(); a != b || !validFar2lClientID(a) {
 		t.Errorf("far2lClientID not stable/valid: %q %q", a, b)
 	}
