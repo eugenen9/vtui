@@ -419,7 +419,7 @@ func TestGeneratedProperties_UncoveredWidgets(t *testing.T) {
 			if err := tc.widget.SetProperty("visible", PropValBool(false)); err != nil {
 				t.Errorf("inherited SetProperty(visible): %v", err)
 			}
-			if got, ok := tc.widget.GetProperty("visible"); !ok || got != PropValBool(false) {
+			if got, ok := tc.widget.GetProperty("visible"); !ok || !reflect.DeepEqual(got, PropValBool(false)) {
 				t.Errorf("inherited GetProperty(visible) = (%+v, %v), want (false, true)", got, ok)
 			}
 			if err := tc.widget.SetProperty("unknown", PropValString("value")); !errors.Is(err, ErrUnknownProperty) {
