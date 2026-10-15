@@ -91,6 +91,14 @@ func roundedButtonHoverBack(bg uint32) uint32 {
 	return mixRGB(bg, 0xFFFFFF, roundedButtonHover)
 }
 
+// roundedControlHoverAttr applies the same subtle, contrast-preserving hover
+// tint used by rounded buttons to a regular control attribute.
+func roundedControlHoverAttr(attr uint64) uint64 {
+	bg := roundedButtonHoverBack(attrColorRGB(attr, true))
+	fg := readableOn(attrColorRGB(attr, false), bg, roundedButtonMinContrast)
+	return SetRGBBoth(attr, fg, bg)
+}
+
 // readableOn returns fg, nudged towards white or black (whichever contrasts
 // with bg) just far enough that its contrast ratio against bg reaches minRatio;
 // fg itself when it is readable already.
