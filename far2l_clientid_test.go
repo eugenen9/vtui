@@ -3,6 +3,7 @@ package vtui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -18,7 +19,9 @@ func TestFar2lClientID_CreatedAndPersisted(t *testing.T) {
 	}
 	if st, err := os.Stat(path); err != nil {
 		t.Fatalf("ID file not written: %v", err)
-	} else if st.Mode().Perm()&0o077 != 0 {
+	} else if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
+		// Windows permissions are ACL-based; Go's Mode().Perm() does not report
+		// the effective access policy and os.WriteFile's mode is ignored there.
 		t.Errorf("ID file is accessible by others: %v", st.Mode())
 	}
 }
