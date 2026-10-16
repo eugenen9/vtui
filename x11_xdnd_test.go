@@ -216,3 +216,17 @@ func TestX11DragSourceIgnoresForeignMessages(t *testing.T) {
 		t.Fatalf("err = %v, want ErrDragNoData", err)
 	}
 }
+
+func TestX11DragSourceBorrowedPointerLeavesGrabAlone(t *testing.T) {
+	var none *X11DragSource
+	none.BorrowPointer()
+
+	s := &X11DragSource{d: &x11Dnd{}}
+	s.BorrowPointer()
+	// With no connection either call would panic if it tried to talk to the
+	// server, which a borrowed pointer must never do.
+	if err := s.d.grabSourcePointer(); err != nil {
+		t.Fatalf("grab of a borrowed pointer: %v", err)
+	}
+	s.d.ungrabSourcePointer(0)
+}

@@ -37,6 +37,17 @@ func NewX11DragSource(conn *xgb.Conn, window, root xproto.Window, released func(
 	return &X11DragSource{d: d}
 }
 
+// BorrowPointer tells the source that another client already holds the
+// pointer for the gesture, which is what a Wine window does from the button
+// press on: an X server refuses a second grab, so StartDrag would fail. The
+// source then neither grabs nor ungrabs, and the owner reports the pointer
+// through HandleMotion and HandleRelease alone. Call it before StartDrag.
+func (s *X11DragSource) BorrowPointer() {
+	if s != nil {
+		s.d.srcBorrowed = true
+	}
+}
+
 // StartDrag runs the whole gesture and blocks until the pointer is released
 // and the target has answered, so it must not run on the goroutine that feeds
 // the events below.
