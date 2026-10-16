@@ -185,3 +185,34 @@ func TestNewX11DndFillsTheSourceWindow(t *testing.T) {
 		t.Fatal("without a host there is no window to be a source on")
 	}
 }
+
+func TestX11DragSourceNeedsConnAndWindow(t *testing.T) {
+	if s := NewX11DragSource(nil, 1, 2, nil); s != nil {
+		t.Fatal("without a connection there is nothing to drag from")
+	}
+}
+
+func TestX11DragSourceWithoutState(t *testing.T) {
+	var s *X11DragSource
+	if _, err := s.StartDrag(DragPayload{Paths: []string{"/tmp/x"}}, DropCopy); err != ErrDragUnsupported {
+		t.Fatalf("err = %v, want ErrDragUnsupported", err)
+	}
+	if s.DraggingOut() || s.HandleClientMessage(&xproto.ClientMessageEvent{Format: 32}) ||
+		s.HandleSelectionRequest(&xproto.SelectionRequestEvent{}) {
+		t.Fatal("a nil source must ignore everything")
+	}
+}
+
+func TestX11DragSourceIgnoresForeignMessages(t *testing.T) {
+	s := &X11DragSource{d: testDnd()}
+	s.d.a.status, s.d.a.finished, s.d.a.enter = 401, 402, 403
+	if s.HandleClientMessage(&xproto.ClientMessageEvent{Format: 32, Type: 403}) {
+		t.Fatal("XdndEnter belongs to the receiving half, which this source does not run")
+	}
+	if !s.HandleClientMessage(&xproto.ClientMessageEvent{Format: 32, Type: 401}) {
+		t.Fatal("XdndStatus must be consumed even when no drag is running")
+	}
+	if _, err := s.StartDrag(DragPayload{}, DropCopy); err != ErrDragNoData {
+		t.Fatalf("err = %v, want ErrDragNoData", err)
+	}
+}
