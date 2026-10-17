@@ -1796,10 +1796,13 @@ func TestFrameManager_PostTaskNonBlocking(t *testing.T) {
 		done <- true
 	}()
 
+	// The return must come: a slow runner may take longer than 100 ms just
+	// to schedule the goroutine (red main vtui bdeee03aa, darwin/arm64), and
+	// a real block still fails after 30 s.
 	select {
 	case <-done:
 		// Успех: PostTask больше не блокирует поток
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(30 * time.Second):
 		t.Error("PostTask STILL blocks on full channel (regression!)")
 	}
 }
