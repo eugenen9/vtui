@@ -48,6 +48,18 @@ func (s *X11DragSource) BorrowPointer() {
 	}
 }
 
+// SkipTargets makes the source pass over every window skip reports true for,
+// as if it were not XdndAware, and look at the windows below it instead. An
+// owner uses it to keep a drag from landing on its own window: a Wine program
+// that drags out is blocked waiting for the gesture while the host's X server
+// hands the drag to the very window it started from. Call it before StartDrag;
+// skip runs on the goroutine that feeds HandleMotion.
+func (s *X11DragSource) SkipTargets(skip func(xproto.Window) bool) {
+	if s != nil {
+		s.d.srcSkip = skip
+	}
+}
+
 // StartDrag runs the whole gesture and blocks until the pointer is released
 // and the target has answered, so it must not run on the goroutine that feeds
 // the events below.

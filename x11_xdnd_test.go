@@ -230,3 +230,18 @@ func TestX11DragSourceBorrowedPointerLeavesGrabAlone(t *testing.T) {
 	}
 	s.d.ungrabSourcePointer(0)
 }
+
+func TestX11DragSourceSkipTargetsWithoutState(t *testing.T) {
+	var none *X11DragSource
+	none.SkipTargets(func(xproto.Window) bool { return true })
+
+	s := &X11DragSource{d: &x11Dnd{}}
+	s.SkipTargets(func(w xproto.Window) bool { return w == 7 })
+	if s.d.srcSkip == nil || !s.d.srcSkip(7) || s.d.srcSkip(8) {
+		t.Fatal("the predicate was not stored as given")
+	}
+	s.SkipTargets(nil)
+	if s.d.srcSkip != nil {
+		t.Fatal("nil must clear the predicate")
+	}
+}

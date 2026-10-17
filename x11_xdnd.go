@@ -100,6 +100,11 @@ type x11Dnd struct {
 	// out neither grabs it nor lets go of it. The owner reports the pointer
 	// through srcMotion and srcRelease instead.
 	srcBorrowed bool
+	// srcSkip, when set, names windows that are never a drop target even
+	// though they announce XdndAware: the owner's own windows, which a Wine
+	// program would otherwise offer its drag to through the host's X server
+	// while the program itself is the one waiting on that drag.
+	srcSkip func(xproto.Window) bool
 }
 
 // newX11Dnd interns the atoms and marks the window as a drop target. It
@@ -763,6 +768,9 @@ func (d *x11Dnd) findTarget(rootX, rootY int) (xproto.Window, int) {
 			break
 		}
 		w = reply.Child
+		if d.srcSkip != nil && d.srcSkip(w) {
+			continue
+		}
 		if v := d.awareVersion(w); v > 0 {
 			return w, v
 		}

@@ -193,3 +193,44 @@ func ownsSelection(conn *xgb.Conn, selection xproto.Atom, window xproto.Window) 
 	reply, err := xproto.GetSelectionOwner(conn, selection).Reply()
 	return err == nil && reply != nil && reply.Owner == window
 }
+
+// TestFindTargetSkipsWindowsTheOwnerNamesLive checks that a window the owner
+// excludes is passed over although it announces XdndAware, and that without
+// the exclusion it is found. It needs an X server (xvfb-run) and skips without
+// one.
+func TestFindTargetSkipsWindowsTheOwnerNamesLive(t *testing.T) {
+	if os.Getenv("DISPLAY") == "" {
+		t.Skip("no DISPLAY")
+	}
+	newLiveDndTarget(t, 10, 10)
+
+	conn, err := xgb.NewConn()
+	if err != nil {
+		t.Skipf("no X server: %v", err)
+	}
+	t.Cleanup(conn.Close)
+	screen := xproto.Setup(conn).DefaultScreen(conn)
+	d := &x11Dnd{conn: conn, srcRoot: screen.Root}
+	if !d.internAtoms() {
+		t.Fatal("the server does not know the XDND atoms")
+	}
+
+	// A window manager may put a frame between the root and the target, so
+	// compare with the window found while nothing is skipped.
+	want, version := d.findTarget(50, 50)
+	if want == 0 || version == 0 {
+		t.Skip("the target window is not reachable at 50,50 on this server")
+	}
+
+	var asked []xproto.Window
+	d.srcSkip = func(w xproto.Window) bool {
+		asked = append(asked, w)
+		return w == want
+	}
+	if w, _ := d.findTarget(50, 50); w == want {
+		t.Fatalf("the skipped window %d was still chosen", want)
+	}
+	if len(asked) == 0 || asked[len(asked)-1] == 0 {
+		t.Fatalf("skip was not asked about the windows under the pointer: %v", asked)
+	}
+}
