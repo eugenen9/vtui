@@ -112,16 +112,32 @@ func (m *CoverMask) shade(x1, y1, x2, y2 int) { m.mark(x1, y1, x2, y2, cellShade
 // uncovered cells per row, and runs with the same columns in consecutive rows
 // merged. A menu or a dialog over a picture leaves two or three of them.
 func (m *CoverMask) uncoveredRects() []image.Rectangle {
+	return m.rectsWhere(func(col, row int) bool { return !m.Covered(col, row) })
+}
+
+// openRects is uncoveredRects without the shaded cells: where the picture
+// shows as it is.
+func (m *CoverMask) openRects() []image.Rectangle {
+	return m.rectsWhere(func(col, row int) bool { return m.at(col, row) == cellOpen })
+}
+
+// shadedRects splits the shaded cells the same way.
+func (m *CoverMask) shadedRects() []image.Rectangle {
+	return m.rectsWhere(m.Shaded)
+}
+
+// rectsWhere splits the cells keep reports true for into rectangles.
+func (m *CoverMask) rectsWhere(keep func(col, row int) bool) []image.Rectangle {
 	var done, open []image.Rectangle
 	for row := m.Row; row < m.Row+m.Rows; row++ {
 		var runs []image.Rectangle
 		for col := m.Col; col < m.Col+m.Cols; {
-			if m.Covered(col, row) {
+			if !keep(col, row) {
 				col++
 				continue
 			}
 			start := col
-			for col < m.Col+m.Cols && !m.Covered(col, row) {
+			for col < m.Col+m.Cols && keep(col, row) {
 				col++
 			}
 			runs = append(runs, image.Rect(start, row, col, row+1))
@@ -157,14 +173,33 @@ const maxCoverCrops = 32
 // over its uncovered rectangles, for transports that cannot leave cells out
 // of a picture. Each crop maps its cells onto the same part of the source
 // the whole placement would have shown there, under an id of its own.
-func splitCovered(p ImagePlacement) []ImagePlacement {
-	rects := p.Covered.uncoveredRects()
-	if len(rects) == 0 || len(rects) > maxCoverCrops || p.ID >= 1<<24 {
+//
+// A shadow cannot darken what a terminal already shows, but the picture's
+// pixels are ours: with shade given, the shaded cells go as crops of their
+// own, cut from the darkened picture, so the shadow lies over the picture
+// like it lies over text (f4#1885). A picture too ragged for that is cut by
+// the covers alone, and the shadow is dropped.
+func splitCovered(p ImagePlacement, shade func(s *ImageSurface, x, y, w, h int) *ImageSurface) []ImagePlacement {
+	if p.ID >= 1<<24 {
+		return nil
+	}
+	if shade != nil && p.Covered.shaded > 0 {
+		if out := cropRects(p, p.Covered.openRects(), p.Covered.shadedRects(), shade); out != nil {
+			return out
+		}
+	}
+	return cropRects(p, p.Covered.uncoveredRects(), nil, nil)
+}
+
+// cropRects makes a crop of p for each rectangle; the shaded ones are cut
+// from the darkened picture.
+func cropRects(p ImagePlacement, open, shaded []image.Rectangle, shade func(s *ImageSurface, x, y, w, h int) *ImageSurface) []ImagePlacement {
+	if n := len(open) + len(shaded); n == 0 || n > maxCoverCrops {
 		return nil
 	}
 	sx, sy, sw, sh := p.Source()
-	out := make([]ImagePlacement, 0, len(rects))
-	for k, r := range rects {
+	out := make([]ImagePlacement, 0, len(open)+len(shaded))
+	for k, r := range append(append([]image.Rectangle(nil), open...), shaded...) {
 		c := p
 		c.ID = uint32(k+1)<<24 | p.ID //nolint:gosec // G115: k < maxCoverCrops
 		c.Col, c.Row = r.Min.X, r.Min.Y
@@ -178,9 +213,61 @@ func splitCovered(p ImagePlacement) []ImagePlacement {
 		}
 		c.SrcX, c.SrcY, c.SrcW, c.SrcH = x0, y0, x1-x0, y1-y0
 		c.Covered = nil
+		if k >= len(open) {
+			if dark := shade(p.Surface, x0, y0, x1-x0, y1-y0); dark != nil {
+				c.Surface = dark
+				c.SrcX, c.SrcY, c.SrcW, c.SrcH = 0, 0, 0, 0
+			}
+		}
 		out = append(out, c)
 	}
 	return out
+}
+
+// shadedCropLimit bounds the darkened crops kept: a menu moved along its bar
+// asks for a few different ones in turn.
+const shadedCropLimit = 16
+
+// shadedCropKey names a crop of a picture: the content hash of the surface
+// and the source rectangle.
+type shadedCropKey struct {
+	hash       uint64
+	x, y, w, h int
+}
+
+// shadedCrop returns the rectangle (x, y, w, h) of s darkened as a shadow
+// darkens a cell, as a surface of its own; nil when the rectangle holds no
+// pixels. The darkened pixels are kept, with g.mu held by the caller.
+func (g *GraphicsLayer) shadedCrop(s *ImageSurface, x, y, w, h int) *ImageSurface {
+	if !s.Valid() {
+		return nil
+	}
+	key := shadedCropKey{s.Hash(), x, y, w, h}
+	if dark, ok := g.shadedCrops[key]; ok {
+		return dark
+	}
+	dark := s.Crop(x, y, w, h)
+	if dark == nil {
+		return nil
+	}
+	for row := 0; row < dark.Height; row++ {
+		px := dark.Pix[row*dark.Stride : row*dark.Stride+dark.Width*4]
+		for i := 0; i < len(px); i += 4 {
+			for c := 0; c < 3; c++ {
+				px[i+c] = byte(uint32(px[i+c]) * ShadeKeepNum / ShadeKeepDen) //nolint:gosec // G115: a byte scaled by 3/8 stays a byte
+			}
+		}
+	}
+	if g.shadedCrops == nil {
+		g.shadedCrops = make(map[shadedCropKey]*ImageSurface)
+	}
+	g.shadedCrops[key] = dark
+	g.shadedCropOrder = append(g.shadedCropOrder, key)
+	if len(g.shadedCropOrder) > shadedCropLimit {
+		delete(g.shadedCrops, g.shadedCropOrder[0])
+		g.shadedCropOrder = g.shadedCropOrder[1:]
+	}
+	return dark
 }
 
 func (m *CoverMask) equal(o *CoverMask) bool {

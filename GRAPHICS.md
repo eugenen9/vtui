@@ -65,7 +65,12 @@ loses in a `CoverMask`; `Snapshot` hands it over as `ImagePlacement.Covered`.
   holds the picture back until it clears.
 * A frame's shadow (`ApplyShadow`) shades a cell instead of covering it: the
   native backends draw the picture there darkened to the 3/8 the shadow
-  leaves text cells; terminals, which cannot darken a picture, ignore it.
+  leaves text cells. A terminal cannot darken what it shows, but the pixels
+  are ours, so `Snapshot` hands it the shaded cells as crops of their own,
+  cut from a darkened copy of the picture (kept between frames, so a shadow
+  that stays put is darkened once); without that the picture would hide the
+  shadow of a menu lying over it (f4#1885). A picture too ragged for the
+  open and the shaded crops together keeps the picture and drops the shadow.
   Painting over a shadow covers the cell; a shadow over a cover leaves it
   covered.
 * A change in any mask bumps the generation, so every backend redraws.

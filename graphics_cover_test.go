@@ -151,14 +151,118 @@ func TestShadowShadesPicture(t *testing.T) {
 	if !m.Shaded(3, 3) || !m.Shaded(6, 3) || !m.Covered(5, 3) || !m.Covered(3, 4) || m.Shaded(3, 4) {
 		t.Fatal("shadow and cover do not stack in painting order")
 	}
+}
 
-	// A terminal cannot darken a picture: a shadow alone leaves it whole.
-	for _, proto := range []GraphicsProtocol{GraphicsKitty, GraphicsSixel} {
+// shadePass paints one frame like coverPass, with a picture of surf.
+func shadePass(scr *ScreenBuf, surf *ImageSurface, paint func()) {
+	g := scr.Graphics()
+	g.BeginFrame()
+	scr.FillRect(0, 0, 19, 9, ' ', 0)
+	g.DrawImage("panel", ImagePlacement{Surface: surf, Col: 2, Row: 2, Cols: 8, Rows: 5})
+	if paint != nil {
+		paint()
+	}
+	g.EndFrame()
+}
+
+// A terminal cannot darken what it shows, but the pixels are vtui's own: the
+// cells under a shadow reach the terminal protocols as crops cut from a
+// darkened copy of the picture, the rest as crops of the picture itself
+// (f4#1885).
+func TestShadowDarkensCropsForTerminalProtocols(t *testing.T) {
+	for _, proto := range []GraphicsProtocol{GraphicsKitty, GraphicsSixel, GraphicsITerm2, GraphicsFar2l} {
+		surf := solidSurface(8, 5, 200, 100, 40, 255)
 		scr := newCoverScreen(proto)
-		coverPass(t, scr, func() { scr.ApplyShadow(3, 3, 6, 6) })
-		if list, _ := scr.Graphics().Snapshot(nil); len(list) != 1 || list[0].Cols != 8 || list[0].Rows != 5 {
-			t.Errorf("protocol %v: a shadow alone must leave the picture whole, got %+v", proto, list)
+		shadePass(scr, surf, func() { scr.ApplyShadow(3, 3, 6, 6) })
+		list, _ := scr.Graphics().Snapshot(nil)
+
+		cells, dark := 0, 0
+		for _, c := range list {
+			cells += c.Cols * c.Rows
+			if c.Col >= 3 && c.Col+c.Cols-1 <= 6 && c.Row >= 3 {
+				dark++
+				if c.Surface == surf || c.SrcW != 0 || c.SrcH != 0 {
+					t.Fatalf("protocol %v: the shaded crop %+v must carry a darkened surface of its own", proto, c)
+				}
+				if c.Surface.Width != c.Cols || c.Surface.Height != c.Rows {
+					t.Fatalf("protocol %v: the shaded crop %+v shows %dx%d pixels", proto, c, c.Surface.Width, c.Surface.Height)
+				}
+				r, g, b, a := c.Surface.PixelAt(0, 0)
+				if r != 200*ShadeKeepNum/ShadeKeepDen || g != 100*ShadeKeepNum/ShadeKeepDen || b != 40*ShadeKeepNum/ShadeKeepDen || a != 255 {
+					t.Fatalf("protocol %v: shaded pixel = %d,%d,%d,%d", proto, r, g, b, a)
+				}
+				continue
+			}
+			if c.Surface != surf {
+				t.Fatalf("protocol %v: the open crop %+v must show the picture itself", proto, c)
+			}
 		}
+		if cells != 8*5 || dark != 1 || len(list) != 4 {
+			t.Fatalf("protocol %v: %d crops, %d shaded, %d cells, want 4, 1, 40", proto, len(list), dark, cells)
+		}
+		if r, _, _, _ := surf.PixelAt(4, 4); r != 200 {
+			t.Fatalf("protocol %v: darkening the crop changed the picture (red %d)", proto, r)
+		}
+
+		// A shadow that stays put reuses the darkened crop.
+		first := list[len(list)-1].Surface
+		shadePass(scr, surf, func() { scr.ApplyShadow(3, 3, 6, 6) })
+		again, _ := scr.Graphics().Snapshot(nil)
+		found := false
+		for _, c := range again {
+			found = found || c.Surface == first
+		}
+		if !found {
+			t.Errorf("protocol %v: the darkened crop was cut again for the same shadow", proto)
+		}
+
+		shadePass(scr, surf, nil)
+		if list, _ := scr.Graphics().Snapshot(nil); len(list) != 1 || list[0].Surface != surf || list[0].Cols != 8 {
+			t.Errorf("protocol %v: the picture must come back whole when the shadow is gone", proto)
+		}
+	}
+}
+
+// A shadow over a cover stays covered, and the picture around a menu and its
+// shadow is cut into the open parts and the shaded ones.
+func TestShadowBesideMenuCropsOpenAndShaded(t *testing.T) {
+	surf := solidSurface(8, 5, 200, 100, 40, 255)
+	scr := newCoverScreen(GraphicsSixel)
+	shadePass(scr, surf, func() {
+		scr.FillRect(4, 3, 6, 4, ' ', 0) // the menu, cells (4..6, 3..4)
+		scr.ApplyShadow(5, 5, 8, 5)      // under the menu
+		scr.ApplyShadow(7, 4, 8, 5)      // beside it
+	})
+	list, _ := scr.Graphics().Snapshot(nil)
+	cells := 0
+	for _, c := range list {
+		cells += c.Cols * c.Rows
+		for row := c.Row; row < c.Row+c.Rows; row++ {
+			for col := c.Col; col < c.Col+c.Cols; col++ {
+				if col >= 4 && col <= 6 && row >= 3 && row <= 4 {
+					t.Fatalf("crop %+v reaches the menu cell (%d,%d)", c, col, row)
+				}
+			}
+		}
+	}
+	if want := 8*5 - 3*2; cells != want {
+		t.Fatalf("crops hold %d cells, want %d: the menu's cells, and only they, are cut out", cells, want)
+	}
+}
+
+// A cover so ragged that the shaded and open crops together exceed
+// maxCoverCrops gives up the shadow and keeps the picture.
+func TestRaggedShadowFallsBackToUndarkenedPicture(t *testing.T) {
+	surf := solidSurface(70, 1, 200, 100, 40, 255)
+	p := ImagePlacement{ID: 1, Surface: surf, Col: 0, Row: 0, Cols: 70, Rows: 1}
+	p.Covered = newCoverMask(&p)
+	for x := 0; x < 70; x += 2 {
+		p.Covered.shade(x, 0, x, 0)
+	}
+	var g GraphicsLayer
+	list := splitCovered(p, g.shadedCrop)
+	if len(list) != 1 || list[0].Surface != surf || list[0].Cols != 70 {
+		t.Fatalf("a ragged shadow must leave the picture whole, got %d crops", len(list))
 	}
 }
 

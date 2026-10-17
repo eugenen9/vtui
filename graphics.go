@@ -413,6 +413,12 @@ type GraphicsLayer struct {
 	liveCount     atomic.Int32
 	pendingCovers map[uint32]*CoverMask
 	covers        map[uint32]*CoverMask
+
+	// shadedCrops keeps the darkened crops Snapshot hands to the terminal
+	// protocols, so a shadow that stays put costs one darkening, not one per
+	// frame (graphics_cover.go).
+	shadedCrops     map[shadedCropKey]*ImageSurface
+	shadedCropOrder []shadedCropKey
 }
 
 // Protocol returns the active protocol, detecting it on first use.
@@ -625,8 +631,8 @@ func (g *GraphicsLayer) Invalidate() {
 // frames) sorted back to front, and returns the current generation. Each
 // copy carries its Covered mask. The native protocol draws around covered
 // cells and darkens shaded ones; every other transport cannot cut a picture
-// per cell, so a partly covered placement reaches it as crops of its
-// uncovered rectangles, and a shadow is ignored.
+// per cell, so a partly covered or shaded placement reaches it as crops of
+// its rectangles, the shaded ones cut from a darkened copy of the picture.
 func (g *GraphicsLayer) Snapshot(dst []ImagePlacement) ([]ImagePlacement, uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -636,12 +642,10 @@ func (g *GraphicsLayer) Snapshot(dst []ImagePlacement) ([]ImagePlacement, uint64
 		p.Covered = g.covers[p.ID]
 		switch {
 		case p.Covered.Full():
-		case native || !p.Covered.AnyCovered():
-			// A terminal cannot darken a picture, so a shadow alone
-			// leaves it whole there.
+		case native || !p.Covered.Any():
 			dst = append(dst, p)
 		default:
-			dst = append(dst, splitCovered(p)...)
+			dst = append(dst, splitCovered(p, g.shadedCrop)...)
 		}
 	}
 	sort.SliceStable(dst, func(i, j int) bool {
