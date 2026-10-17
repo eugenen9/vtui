@@ -1001,6 +1001,7 @@ func (r *AnsiRenderer) Render(buf, shadow []CharInfo, w, h int, force bool) {
 	lastX, lastY := -1, -1
 	resync := false
 	r.lastAttr = ^uint64(0)
+	var imageCells []bool
 
 	for y := 0; y < h; y++ {
 		rowOff := y * w
@@ -1042,10 +1043,21 @@ func (r *AnsiRenderer) Render(buf, shadow []CharInfo, w, h int, force bool) {
 			startX = firstDiff
 			endX = lastDiff
 		}
+		// A row redrawn in full still leaves out the unchanged cells a
+		// picture shows in: the picture lies over them in the terminal.
+		underImage := false
+		if rowHasGhost && !force {
+			if imageCells == nil {
+				imageCells = make([]bool, w)
+			} else {
+				clear(imageCells)
+			}
+			underImage = r.parent.graphics.openImageCells(y, imageCells)
+		}
 
 		for x := startX; x <= endX; x++ {
 			idx := rowOff + x
-			if !force && !rowHasGhost && buf[idx] == shadow[idx] {
+			if !force && (!rowHasGhost || underImage && imageCells[x]) && buf[idx] == shadow[idx] {
 				continue
 			}
 
