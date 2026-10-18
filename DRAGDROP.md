@@ -107,9 +107,18 @@ debug.log, and which line is *missing* says where the gesture died:
   finished drop and nothing before it, so neither the actions the source
   allows nor the modifiers held are known, and nothing travels back to the
   source either, which is the one thing a move would need
-- gogpu limitation: nothing arrives before the drop, so a target cannot
-  highlight anything while the pointer is still moving. The gesture is
-  replayed as one enter immediately followed by the drop
+- gogpu: a drag in progress arrives through OnDragEnter / OnDragMove /
+  OnDragLeave where gogpu's platform reports it - macOS, X11, Wayland - and
+  is delivered tracked (gogpu_dnd_hover.go). The callbacks only queue the
+  step; one worker delivers the queue in order, folding a run of waiting
+  moves into the newest, because delivery waits for the UI thread and the
+  callbacks run on the loop that draws the window. The callbacks are
+  gogpu/gogpu#506, not released yet: go.mod replaces gogpu with
+  sogonov/gogpu (v0.53.0 plus that commit), and a module importing vtui
+  needs the same replace
+- gogpu limitation: on Windows gogpu has only WM_DROPFILES, so nothing
+  arrives before the drop there, and the gesture is replayed as one
+  untracked enter immediately followed by the drop
   - gogpu, X11, unfixed as of 0.50.1: a drop from another application is
     lost more often than it arrives - measured at 4 callbacks in 10 attempts
     - and the position of the ones that do arrive is always 0,0. Both come
