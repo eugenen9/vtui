@@ -157,7 +157,7 @@ func comDropTargetDragLeave(t *comDropTarget) uintptr {
 	t.paths = nil
 	t.mu.Unlock()
 	DebugLog("WIN32_DND: IDropTarget.DragLeave")
-	DeliverDragEvent(&DragEvent{Phase: DragLeave})
+	DeliverDragEvent(&DragEvent{Phase: DragLeave, Tracked: true})
 	return sOK
 }
 
@@ -213,6 +213,7 @@ func (t *comDropTarget) answer(phase DragPhase, grfKeyState, pt uintptr, pdwEffe
 		Allowed:   allowed,
 		Suggested: defaultDropAction(allowed, mods),
 		Payload:   payload,
+		Tracked:   true,
 	})
 	*pdwEffect = dropActionToDropEffect(action)
 	return sOK

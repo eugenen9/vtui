@@ -17,6 +17,13 @@ answer is what gives the pointer its copy / move cursor, so it must be quick
 and must not open dialogs. `DragDrop` is the phase where the work actually
 starts; start it in the background and return.
 
+`ev.Tracked` says whether the backend followed the drag while it moved. When
+it is true, the `DragEnter` / `DragOver` steps came as the pointer moved, so
+a highlight shown for them was on screen before the drop and the user could
+aim at it. When it is false, the backend learnt of nothing but the drop and
+replays the gesture at the drop: nothing was shown, and a target that drops
+into whatever lies under the pointer drops somewhere the user never saw.
+
 To hand files to other applications:
 
     action, err := vtui.StartDrag(payload, vtui.DropCopy|vtui.DropMove)
@@ -39,6 +46,8 @@ Then, for every step of an incoming gesture, build a `DragEvent` and call
   anything that is not a local file in `Payload.URIs`;
 - send exactly one `DragEnter`, any number of `DragOver`, and then one
   `DragLeave` or one `DragDrop`;
+- set `Tracked` when the steps come as the pointer moves, and leave it false
+  for a gesture replayed at the drop;
 - report the returned `DropAction` back to the source as the protocol
   requires.
 

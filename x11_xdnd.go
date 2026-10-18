@@ -349,6 +349,7 @@ func (d *x11Dnd) onPosition(e *xproto.ClientMessageEvent) {
 			Allowed:   allowed,
 			Suggested: suggested,
 			Payload:   DragPayload{Kinds: d.kinds()},
+			Tracked:   true,
 		})
 	}
 	if !allowed.Has(action) {
@@ -390,7 +391,7 @@ func dndCell(px, cell int) int {
 
 func (d *x11Dnd) onLeave() {
 	if d.inside {
-		DeliverDragEvent(&DragEvent{Phase: DragLeave, X: d.lastX, Y: d.lastY})
+		DeliverDragEvent(&DragEvent{Phase: DragLeave, X: d.lastX, Y: d.lastY, Tracked: true})
 	}
 	DebugLog("XDND: leave")
 	d.reset()
@@ -431,6 +432,7 @@ func (d *x11Dnd) handleSelectionNotify(e *xproto.SelectionNotifyEvent) bool {
 			Allowed:   d.allowed | d.accepted,
 			Suggested: d.accepted,
 			Payload:   payload,
+			Tracked:   true,
 		})
 	}
 	if action != DropNone {

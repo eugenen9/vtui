@@ -113,6 +113,13 @@ func (p DragPayload) IsEmpty() bool {
 // coordinates, converted by the backend from device pixels, so a target
 // reasons in the same units as a mouse event. Allowed is what the source
 // permits, Suggested is what it would do by default.
+//
+// Tracked says the backend followed the drag while it was moving: the
+// DragEnter, DragOver and DragLeave a target saw came as the pointer moved,
+// so whatever the target showed for them (a highlighted folder, say) was on
+// screen before the drop. A backend that learns of nothing but the drop
+// (WM_DROPFILES, ebiten, gogpu on Windows) replays the gesture at the drop
+// with Tracked false: the target showed nothing, and the user aimed blind.
 type DragEvent struct {
 	Phase     DragPhase
 	X, Y      int
@@ -120,6 +127,7 @@ type DragEvent struct {
 	Allowed   DropAction
 	Suggested DropAction
 	Payload   DragPayload
+	Tracked   bool
 }
 
 // DropTarget is implemented by the application to answer what a drop at a
