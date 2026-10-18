@@ -296,9 +296,12 @@ type frameManager struct {
 	WorkspaceAttentionAttr   uint64
 	workspaceColorsSet       bool
 	workspaceTabHits         []workspaceTabHit
-	workspaceNewTabX         int
-	workspaceTabDrag         *AppScreen
-	workspaceTabDragHits     []workspaceTabHit
+	// workspaceDrag is a drag of files resting on the workspace tabs
+	// (dragdrop_workspace.go).
+	workspaceDrag        workspaceDragState
+	workspaceNewTabX     int
+	workspaceTabDrag     *AppScreen
+	workspaceTabDragHits []workspaceTabHit
 	// The UI graph itself stays single-goroutine-owned. These atomics only
 	// coordinate callers which need to stop that goroutine or observe that its
 	// shutdown has completed.
