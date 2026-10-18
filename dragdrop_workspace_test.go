@@ -107,3 +107,83 @@ func TestUntrackedDragIgnoresWorkspaceTabs(t *testing.T) {
 		t.Fatalf("target saw %v, want just the drop", got)
 	}
 }
+
+// A drop on a tab is refused, and the rest it ended switches nothing. A
+// leave over the tabs does not reach the target a second time.
+func TestDragEndingOnWorkspaceTabs(t *testing.T) {
+	fm, take, target := newWorkspaceDragFixture(t)
+	x, y := firstTabCell(fm)
+
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: x, Y: y, Tracked: true})
+	if got := fm.routeDrag(target, &DragEvent{Phase: DragDrop, X: x, Y: y, Tracked: true}); got != DropNone {
+		t.Fatalf("a drop on a tab answered %s, want none", got)
+	}
+	if got := take(); len(got) != 1 || got[0] != DragLeave {
+		t.Fatalf("target saw %v, want only the leave on reaching the tabs", got)
+	}
+	if runOneTask(t, fm, 100*time.Millisecond) || fm.ActiveIdx != 1 {
+		t.Fatal("a drag that ended on a tab still switched")
+	}
+
+	// Back on the tabs, then the drag leaves the window: the target already
+	// had its leave when the drag reached the tabs.
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: x, Y: y, Tracked: true})
+	take()
+	fm.routeDrag(target, &DragEvent{Phase: DragLeave, X: 5, Y: 5, Tracked: true})
+	if got := take(); len(got) != 0 {
+		t.Fatalf("target saw %v after leaving from the tabs, want nothing", got)
+	}
+}
+
+// The rest follows the tab under the drag: the active workspace's tab and
+// the separator between tabs start nothing, staying on a tab keeps its
+// rest, and moving to another tab ends it.
+func TestDragRestFollowsTheTab(t *testing.T) {
+	fm, take, target := newWorkspaceDragFixture(t)
+	x, y := firstTabCell(fm)
+	separator := fm.workspaceTabHits[0].x2 + 1
+	active := fm.workspaceTabHits[1].x1 + 1
+
+	if got := fm.routeDrag(target, &DragEvent{Phase: DragOver, X: separator, Y: 0, Tracked: true}); got != DropNone {
+		t.Fatalf("the separator between tabs answered %s, want none", got)
+	}
+	if fm.workspaceDrag.screen != nil {
+		t.Fatal("the separator must not start a rest")
+	}
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: x, Y: y, Tracked: true})
+	rest := fm.workspaceDrag.screen
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: x + 1, Y: y, Tracked: true})
+	if rest == nil || fm.workspaceDrag.screen != rest {
+		t.Fatal("staying on the tab must keep its rest")
+	}
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: active, Y: 0, Tracked: true})
+	if fm.workspaceDrag.screen != nil {
+		t.Fatal("the active workspace's tab must end the rest and start none")
+	}
+	if runOneTask(t, fm, 100*time.Millisecond) || fm.ActiveIdx != 1 {
+		t.Fatal("a rest moved off the tab still switched")
+	}
+	if got := take(); len(got) != 1 || got[0] != DragLeave {
+		t.Fatalf("target saw %v, want one leave for the whole time on the tabs", got)
+	}
+}
+
+// A rest whose timer already fired, but whose switch had not run yet when
+// the drag moved on, switches nothing.
+func TestStaleWorkspaceTabRestIsIgnored(t *testing.T) {
+	fm, _, target := newWorkspaceDragFixture(t)
+	x, y := firstTabCell(fm)
+
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: x, Y: y, Tracked: true})
+	var task func()
+	select {
+	case task = <-fm.TaskChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the rest never fired")
+	}
+	fm.routeDrag(target, &DragEvent{Phase: DragOver, X: 5, Y: 5, Tracked: true})
+	task()
+	if fm.ActiveIdx != 1 {
+		t.Fatalf("a rest the drag had left switched to workspace %d", fm.ActiveIdx)
+	}
+}
