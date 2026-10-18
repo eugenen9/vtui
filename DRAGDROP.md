@@ -24,6 +24,12 @@ aim at it. When it is false, the backend learnt of nothing but the drop and
 replays the gesture at the drop: nothing was shown, and a target that drops
 into whatever lies under the pointer drops somewhere the user never saw.
 
+A tracked drag that rests on a workspace tab for `WorkspaceDragDwell`
+(half a second) brings that workspace up, so files can be dropped into it
+without letting go first (dragdrop_workspace.go). While the drag is over the
+tab row the target sees a `DragLeave`, and a `DragEnter` when it comes back;
+the tabs take no drop themselves.
+
 To hand files to other applications:
 
     action, err := vtui.StartDrag(payload, vtui.DropCopy|vtui.DropMove)

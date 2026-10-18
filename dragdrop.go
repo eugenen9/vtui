@@ -271,12 +271,15 @@ func DeliverDragEvent(ev *DragEvent) DropAction {
 	deliverToUI := DragDeliverToUI
 	fm := FrameManager
 	timeout := DragDeliverTimeout
-	if !deliverToUI || fm == nil || !fm.hasTaskPump() {
+	if fm == nil {
 		return safeHandleDrag(t, ev)
+	}
+	if !deliverToUI || !fm.hasTaskPump() {
+		return fm.routeDrag(t, ev)
 	}
 
 	res := make(chan DropAction, 1)
-	if !fm.enqueueTask(func() { res <- safeHandleDrag(t, ev) }) {
+	if !fm.enqueueTask(func() { res <- fm.routeDrag(t, ev) }) {
 		return DropNone
 	}
 	select {
