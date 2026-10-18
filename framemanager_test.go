@@ -940,6 +940,45 @@ func TestFrameManager_ModalOutsideClicks(t *testing.T) {
 	}
 }
 
+// TestFrameManager_ModalOutsideClicks_Ignored pins unxed/f4#1894: a modal
+// frame that sets OutsideClickIgnored (a running copy's progress window)
+// must survive a press that missed it, with either button. The click is
+// still swallowed -- it must not reach the frame below.
+func TestFrameManager_ModalOutsideClicks_Ignored(t *testing.T) {
+	SetDefaultPalette()
+	fm := &frameManager{}
+	fm.Init(NewSilentScreenBuf())
+	fm.Push(NewDesktop())
+
+	dlg := NewDialog(10, 10, 30, 20, "Progress")
+	btn := NewButton(1, 1, "Cancel")
+	btn.IsDefault = true
+	btn.OnClick = func() { dlg.SetExitCode(42) }
+	dlg.AddItem(btn)
+	dlg.OutsideClickIgnored = true
+	fm.Push(dlg)
+
+	for name, ev := range map[string]*vtinput.InputEvent{
+		"LMB": {Type: vtinput.MouseEventType, KeyDown: true, MouseX: 5, MouseY: 5, ButtonState: vtinput.FromLeft1stButtonPressed},
+		"RMB": {Type: vtinput.MouseEventType, KeyDown: true, MouseX: 5, MouseY: 5, ButtonState: vtinput.RightmostButtonPressed},
+	} {
+		fm.dispatchEvent(ev, false)
+		if dlg.IsDone() {
+			t.Fatalf("%s outside an OutsideClickIgnored dialog closed it (exit code %d)", name, dlg.ExitCode)
+		}
+	}
+
+	// Esc from the keyboard still cancels: only the stray click is ignored.
+	fm.dispatchEvent(&vtinput.InputEvent{
+		Type:           vtinput.KeyEventType,
+		KeyDown:        true,
+		VirtualKeyCode: vtinput.VK_ESCAPE,
+	}, false)
+	if !dlg.IsDone() || dlg.ExitCode != -1 {
+		t.Errorf("Esc on the dialog: done=%v exit code=%d, want done with -1", dlg.IsDone(), dlg.ExitCode)
+	}
+}
+
 // TestFrameManager_ModalOutsideClicks_MenuDismissesOnRMB pins the fix
 // for unxed/f4#396: the RMB-outside → ENTER shortcut is Far-style
 // muscle memory for confirming a dialog's default button, but for a

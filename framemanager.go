@@ -3381,6 +3381,11 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 				}
 
 				if f.IsModal() {
+					// A frame that opts out swallows the click: nothing
+					// behind it is reachable, and nothing is cancelled.
+					if oc, ok := f.(interface{ IsOutsideClickIgnored() bool }); ok && oc.IsOutsideClickIgnored() {
+						break
+					}
 					// Logic for clicking OUTSIDE of a modal frame:
 					// LMB -> ESC (cancel).
 					// RMB -> ENTER (confirm the default action) for a

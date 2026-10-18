@@ -11,6 +11,13 @@ type BaseFrame struct {
 	OnResult            func(int)
 	Busy                bool
 	AttentionSuppressed bool
+
+	// OutsideClickIgnored makes a modal frame swallow a mouse press that
+	// lands outside it instead of turning it into Esc (left button) or
+	// Enter (right button). A dialog whose Esc throws work away -- a running
+	// file copy -- sets it: a click that missed the window by a few cells
+	// must not cancel minutes of work (unxed/f4#1894).
+	OutsideClickIgnored bool
 }
 
 func (bf *BaseFrame) SetExitCode(code int) {
@@ -32,6 +39,7 @@ func (bf *BaseFrame) IsDone() bool                { return bf.Done }
 func (bf *BaseFrame) IsBusy() bool                { return bf.Busy }
 func (bf *BaseFrame) SetBusy(b bool)              { bf.Busy = b }
 func (bf *BaseFrame) IsAttentionSuppressed() bool { return bf.AttentionSuppressed }
+func (bf *BaseFrame) IsOutsideClickIgnored() bool { return bf.OutsideClickIgnored }
 func (bf *BaseFrame) IsModal() bool               { return bf.Modal }
 func (bf *BaseFrame) GetWindowNumber() int        { return bf.Number }
 func (bf *BaseFrame) SetWindowNumber(n int)       { bf.Number = n }
