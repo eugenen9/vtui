@@ -180,3 +180,109 @@ func TestBindSelectionAndProgressWithNothingIsHarmless(t *testing.T) {
 	pb.BindPercent(vreactive.NewProperty(0))()
 	NewProgressBar(0, 0, 5).BindPercent(nil)()
 }
+
+func TestCheckGroupBindMaskFollowsAndUpdatesTheProperty(t *testing.T) {
+	SetDefaultPalette()
+	prop := vreactive.NewProperty(uint32(0b101))
+	cg := NewCheckGroup(0, 0, 1, []string{"&One", "&Two", "T&hree"})
+	var previous []uint32
+	cg.OnChange = func(mask uint32) { previous = append(previous, mask) }
+
+	unbind := cg.BindMask(prop)
+	if !cg.States[0] || cg.States[1] || !cg.States[2] {
+		t.Fatalf("the property (0b101) is applied at once: %v", cg.States)
+	}
+	prop.Set(0b010)
+	if cg.States[0] || !cg.States[1] || cg.States[2] {
+		t.Fatalf("after the property went 0b010: %v", cg.States)
+	}
+
+	// Toggling with the keyboard updates the property and still reaches the
+	// handler that was there.
+	cg.focusIdx = 0
+	cg.ProcessKey(&vtinput.InputEvent{Type: vtinput.KeyEventType, KeyDown: true, VirtualKeyCode: vtinput.VK_SPACE})
+	if prop.Get() != 0b011 {
+		t.Fatalf("property after toggling option 0 = %03b", prop.Get())
+	}
+	if len(previous) == 0 || previous[len(previous)-1] != 0b011 {
+		t.Fatalf("the previous OnChange handler was not called: %v", previous)
+	}
+	// A hotkey toggles too: "&Two" is option 1, which was set.
+	cg.ProcessKey(&vtinput.InputEvent{Type: vtinput.KeyEventType, KeyDown: true, Char: 't'})
+	if prop.Get() != 0b001 {
+		t.Fatalf("property after the hotkey of option 1 = %03b", prop.Get())
+	}
+
+	unbind()
+	prop.Set(0b100)
+	if cg.States[2] {
+		t.Fatal("the group still follows the property after unbind")
+	}
+	before := len(previous)
+	cg.OnChange(0)
+	if len(previous) != before+1 || prop.Get() != 0b100 {
+		t.Fatal("unbind must restore the previous handler and stop feeding the property")
+	}
+}
+
+func TestCheckGroupBindMaskIgnoresNil(t *testing.T) {
+	var cg *CheckGroup
+	cg.BindMask(vreactive.NewProperty(uint32(1)))()
+	NewCheckGroup(0, 0, 1, []string{"a"}).BindMask(nil)()
+}
+
+func TestComboBoxBindTextFollowsAndUpdatesTheProperty(t *testing.T) {
+	SetDefaultPalette()
+	prop := vreactive.NewProperty("beta")
+	cb := NewComboBox(0, 0, 20, []string{"alpha", "beta", "gamma"})
+	var typed []string
+	cb.Edit.OnTextChange = func(s string) { typed = append(typed, s) }
+	var chosen []int
+	previousAction := cb.Menu.OnAction
+	cb.Menu.OnAction = func(idx int) {
+		chosen = append(chosen, idx)
+		previousAction(idx)
+	}
+
+	unbind := cb.BindText(prop)
+	if cb.Edit.GetText() != "beta" {
+		t.Fatalf("the property's value is applied at once, got %q", cb.Edit.GetText())
+	}
+	prop.Set("custom")
+	if cb.Edit.GetText() != "custom" {
+		t.Fatalf("combo text after a property change = %q", cb.Edit.GetText())
+	}
+
+	// Typing updates the property and still reaches the handler that was there.
+	cb.Edit.OnTextChange("typed")
+	if prop.Get() != "typed" || len(typed) == 0 || typed[len(typed)-1] != "typed" {
+		t.Fatalf("typing: property = %q, previous handler saw %v", prop.Get(), typed)
+	}
+
+	// Choosing an item from the list sets the text without OnTextChange; the
+	// property must follow, and the earlier action handler must still run.
+	cb.Menu.OnAction(2)
+	if cb.Edit.GetText() != "gamma" || prop.Get() != "gamma" {
+		t.Fatalf("after choosing item 2: text = %q, property = %q", cb.Edit.GetText(), prop.Get())
+	}
+	if len(chosen) != 1 || chosen[0] != 2 {
+		t.Fatalf("the previous Menu.OnAction was not called: %v", chosen)
+	}
+
+	unbind()
+	prop.Set("after unbind")
+	if cb.Edit.GetText() == "after unbind" {
+		t.Fatal("the combo box still follows the property after unbind")
+	}
+	cb.Menu.OnAction(0)
+	cb.Edit.OnTextChange("plain")
+	if prop.Get() != "after unbind" || len(chosen) != 2 || typed[len(typed)-1] != "plain" {
+		t.Fatal("unbind must restore both handlers and stop feeding the property")
+	}
+}
+
+func TestComboBoxBindTextIgnoresNil(t *testing.T) {
+	var cb *ComboBox
+	cb.BindText(vreactive.NewProperty("x"))()
+	NewComboBox(0, 0, 10, nil).BindText(nil)()
+}

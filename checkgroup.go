@@ -8,8 +8,11 @@ import (
 // CheckGroup is a cluster of checkboxes managed as a single widget.
 type CheckGroup struct {
 	ScreenObject
-	Items        []string
-	States       []bool
+	Items  []string
+	States []bool
+	// OnChange is called with the new bit mask (as GetData returns it) after
+	// the user toggles an option.
+	OnChange     func(mask uint32)
 	focusIdx     int
 	Columns      int
 	colWidths    []int
@@ -32,6 +35,14 @@ func (cg *CheckGroup) SetData(val any) {
 		for i := range cg.States {
 			cg.States[i] = (mask & (1 << i)) != 0
 		}
+	}
+}
+
+// toggle flips option i and tells OnChange about the new mask.
+func (cg *CheckGroup) toggle(i int) {
+	cg.States[i] = !cg.States[i]
+	if cg.OnChange != nil {
+		cg.OnChange(cg.GetData().(uint32))
 	}
 }
 
@@ -128,7 +139,7 @@ func (cg *CheckGroup) ProcessKey(e *vtinput.InputEvent) bool {
 
 	switch e.VirtualKeyCode {
 	case vtinput.VK_SPACE:
-		cg.States[cg.focusIdx] = !cg.States[cg.focusIdx]
+		cg.toggle(cg.focusIdx)
 		return true
 	}
 
@@ -139,7 +150,7 @@ func (cg *CheckGroup) ProcessKey(e *vtinput.InputEvent) bool {
 			hk := ExtractHotkey(itm)
 			if hk != 0 && (hk == hkChar || hk == xlatChar) {
 				cg.focusIdx = i
-				cg.States[i] = !cg.States[i]
+				cg.toggle(i)
 				return true
 			}
 		}
@@ -172,7 +183,7 @@ func (cg *CheckGroup) ProcessMouse(e *vtinput.InputEvent) bool {
 			idx := getGridIndexFromMouse(cg.X1, cg.Y1, mx, my, cg.Columns, cg.colWidths)
 			if idx >= 0 && idx < len(cg.Items) {
 				cg.focusIdx = idx
-				cg.States[idx] = !cg.States[idx]
+				cg.toggle(idx)
 				return true
 			}
 		}

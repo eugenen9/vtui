@@ -105,3 +105,63 @@ func (pb *ProgressBar) BindPercent(prop vreactive.Property[int]) func() {
 	}
 	return vreactive.BindTo(prop, pb.SetPercent)
 }
+
+// BindMask binds the options of the check group to a bit mask property in both
+// directions: option i is checked while bit i of the property is set (the
+// layout GetData and SetData use, so at most 32 options), and toggling an
+// option updates the property. The returned function undoes the binding and
+// restores the previous OnChange.
+func (cg *CheckGroup) BindMask(prop vreactive.Property[uint32]) func() {
+	if cg == nil || prop == nil {
+		return func() {}
+	}
+	previous := cg.OnChange
+	return vreactive.TwoWayBind(prop,
+		func() uint32 { return cg.GetData().(uint32) },
+		func(mask uint32) {
+			cg.SetData(mask)
+			cg.NotifyChange()
+		},
+		func(onChange func(uint32)) func() {
+			cg.OnChange = func(mask uint32) {
+				if previous != nil {
+					previous(mask)
+				}
+				onChange(mask)
+			}
+			return func() { cg.OnChange = previous }
+		})
+}
+
+// BindText binds the combo box text to a property in both directions: the
+// text follows the property, and typing or choosing an item from the list
+// updates it. The property's current value is applied at once. The returned
+// function undoes the binding and restores the previous Edit.OnTextChange and
+// Menu.OnAction handlers.
+func (cb *ComboBox) BindText(prop vreactive.Property[string]) func() {
+	if cb == nil || prop == nil {
+		return func() {}
+	}
+	previousText := cb.Edit.OnTextChange
+	previousAction := cb.Menu.OnAction
+	return vreactive.TwoWayBind(prop, cb.Edit.GetText, cb.Edit.SetText, func(onChange func(string)) func() {
+		cb.Edit.OnTextChange = func(text string) {
+			if previousText != nil {
+				previousText(text)
+			}
+			onChange(text)
+		}
+		// Choosing an item sets the text without OnTextChange, so it is
+		// reported here, once the previous handler has put the item in the edit.
+		cb.Menu.OnAction = func(idx int) {
+			if previousAction != nil {
+				previousAction(idx)
+			}
+			onChange(cb.Edit.GetText())
+		}
+		return func() {
+			cb.Edit.OnTextChange = previousText
+			cb.Menu.OnAction = previousAction
+		}
+	})
+}
