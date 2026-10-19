@@ -214,6 +214,35 @@ func TestProtocol_HandlerValidationAndDescribe(t *testing.T) {
 	}
 }
 
+type protocolErrorWriter struct{ err error }
+
+func (w protocolErrorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestProtocol_SendErrorsAndClosedSession(t *testing.T) {
+	t.Run("marshal error", func(t *testing.T) {
+		ps := &ProtocolSession{out: &bytes.Buffer{}}
+		if err := ps.send(UpMessage{Op: "event", Value: make(chan int)}); err == nil {
+			t.Fatal("send accepted a value that cannot be encoded as JSON")
+		}
+	})
+
+	t.Run("writer error", func(t *testing.T) {
+		want := fmt.Errorf("output failed")
+		ps := &ProtocolSession{out: protocolErrorWriter{err: want}}
+		if err := ps.send(UpMessage{Op: "event"}); err != want {
+			t.Fatalf("send error = %v, want %v", err, want)
+		}
+	})
+
+	t.Run("closed session", func(t *testing.T) {
+		ps := &ProtocolSession{out: &bytes.Buffer{}, closeDone: make(chan struct{})}
+		ps.Close()
+		if err := ps.send(UpMessage{Op: "event"}); err != io.ErrClosedPipe {
+			t.Fatalf("send after Close error = %v, want %v", err, io.ErrClosedPipe)
+		}
+	})
+}
+
 func TestProtocol_PipeClosureTeardown(t *testing.T) {
 	SetDefaultPalette()
 	scr := NewSilentScreenBuf()
