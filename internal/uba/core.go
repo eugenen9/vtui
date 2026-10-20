@@ -973,8 +973,9 @@ func computeReordering(levels []level) []int {
 				for j, k := start, limit-1; j < k; j, k = j+1, k-1 {
 					result[j], result[k] = result[k], result[j]
 				}
-				// skip to end of level run
-				i = limit
+				// The loop increment advances once more, so stop on the last
+				// element of the run to visit the first element after it.
+				i = limit - 1
 			}
 		}
 	}
