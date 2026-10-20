@@ -118,7 +118,7 @@ func TestComputeReordering(t *testing.T) {
 	}{
 		{name: "left to right", levels: []level{0, 0, 0}, want: []int{0, 1, 2}},
 		{name: "right to left", levels: []level{1, 1, 1}, want: []int{2, 1, 0}},
-		{name: "nested runs", levels: []level{0, 1, 2, 2, 1, 0}, want: []int{0, 4, 3, 2, 1, 5}},
+		{name: "nested runs", levels: []level{0, 1, 2, 2, 1, 0}, want: []int{0, 4, 2, 3, 1, 5}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
