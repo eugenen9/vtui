@@ -32,7 +32,7 @@ type helpHistoryEntry struct {
 	scrollTop   int
 }
 
-const helpBackButton = "[←]"
+const helpBackLabel = "←"
 
 type helpViewLayout struct {
 	contentX1, contentY1 int
@@ -229,7 +229,7 @@ func (hv *HelpView) Show(scr *ScreenBuf) {
 	hv.rewrapOnResize()
 	hv.BaseWindow.Show(scr)
 	if len(hv.history) > 0 {
-		scr.Write(hv.X1+2, hv.Y1, StringToCharInfo(helpBackButton, Palette[hv.ColorBoxIdx]))
+		NewPainter(scr).DrawTitleButton(hv.X1+2, hv.Y1, helpBackLabel, Palette[hv.ColorBoxIdx])
 	}
 	if hv.current == nil {
 		return
