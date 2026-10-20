@@ -116,6 +116,28 @@ func TestProtocol_Lifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 4. Protocol calls can focus an element and select all of an Edit's text.
+	if err := fm.callOnUI(func() error {
+		if err := session.handleCall(&DownMessage{ID: "userEdit", Method: "selectAll"}); err != nil {
+			return err
+		}
+		if edit.selStart != 0 || edit.selEnd != len(edit.text) || !edit.clearFlag {
+			return fmt.Errorf("selectAll state = (%d, %d, clear=%t), want whole text", edit.selStart, edit.selEnd, edit.clearFlag)
+		}
+		if err := session.handleCall(&DownMessage{ID: "userEdit", Method: "focus"}); err != nil {
+			return err
+		}
+		if !edit.IsFocused() {
+			return fmt.Errorf("focus call did not focus the edit")
+		}
+		if err := session.handleCall(&DownMessage{ID: "missing", Method: "focus"}); err == nil {
+			return fmt.Errorf("call for missing element succeeded")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// 4. Trigger button command and verify event upstream
 	if err := fm.callOnUI(func() error {
 		btn, ok := fm.Lookup("testDlg", "submitBtn")
