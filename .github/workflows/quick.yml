@@ -10,6 +10,10 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+  # train.py starts a run by hand on a staging tip that no push checked (a
+  # merge of main whose diff to the first parent is empty, or only paths-ignore
+  # files): without it the train is never cut from such a tip.
+  workflow_dispatch:
 
 # lunobot/staging is one linear branch every bot lands on, often faster than a
 # run takes. Cancelling there would starve it: no run would ever finish. With
