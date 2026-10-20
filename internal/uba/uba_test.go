@@ -109,3 +109,42 @@ func TestCoreValidationRejectsMalformedInput(t *testing.T) {
 		t.Fatal("Class.in returned an incorrect membership result")
 	}
 }
+
+func TestComputeReordering(t *testing.T) {
+	tests := []struct {
+		name   string
+		levels []level
+		want   []int
+	}{
+		{name: "left to right", levels: []level{0, 0, 0}, want: []int{0, 1, 2}},
+		{name: "right to left", levels: []level{1, 1, 1}, want: []int{2, 1, 0}},
+		{name: "nested runs", levels: []level{0, 1, 2, 2, 1, 0}, want: []int{0, 4, 3, 2, 1, 5}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := computeReordering(tt.levels); !equalInts(got, tt.want) {
+				t.Fatalf("computeReordering(%v) = %v, want %v", tt.levels, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComputeMultilineReorderingDoesNotCrossLineBreaks(t *testing.T) {
+	levels := []level{0, 1, 1, 0, 1, 1, 0}
+	want := []int{0, 2, 1, 3, 5, 4, 6}
+	if got := computeMultilineReordering(levels, []int{4, 7}); !equalInts(got, want) {
+		t.Fatalf("computeMultilineReordering(%v) = %v, want %v", levels, got, want)
+	}
+}
+
+func equalInts(got, want []int) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
