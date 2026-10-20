@@ -62,10 +62,10 @@ func (p *Painter) DrawTitle(x1, y1, x2 int, title string, attr uint64) {
 	p.scr.Write(x1+start, y1, StringToCharInfo(titleStr, attr))
 }
 
-// DrawCloseButton draws the [x] button on the top right.
+// DrawCloseButton draws the close button on the top right of a frame: "[x]" in
+// the classic style, a bare symbol in the rounded one (see DrawTitleButton).
 func (p *Painter) DrawCloseButton(x2, y1 int, offset int, attr uint64) {
-	closeStr := string(UIStrings.CloseBrackets[0]) + string(EffectiveCloseSymbol()) + string(UIStrings.CloseBrackets[1])
-	p.scr.Write(x2-offset, y1, StringToCharInfo(closeStr, attr))
+	p.DrawTitleButton(x2-offset, y1, string(EffectiveCloseSymbol()), attr)
 }
 
 // DrawString draws a raw string with given attributes.
