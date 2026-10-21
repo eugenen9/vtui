@@ -57,3 +57,49 @@ func TestEditHistoryFieldDragSelectsTextInsteadOfHistory(t *testing.T) {
 		t.Fatalf("dragging across the field text did not select anything, selStart=%d selEnd=%d", edit.selStart, edit.selEnd)
 	}
 }
+
+// f4 #2124: with HistoryButtonOnly a plain click in the field only places the
+// cursor; the arrow and the mouse wheel over the field open the history.
+func TestEditHistoryButtonOnlyClickPlacesTheCursor(t *testing.T) {
+	fm, dlg, edit, _ := historyPickDialog(t)
+	edit.HistoryButtonOnly = true
+	edit.SetText("hello")
+
+	x, y := edit.X1+2, edit.Y1
+	feedHistoryPick(fm, gestureEvent(x, y, true, vtinput.FromLeft1stButtonPressed, false))
+	feedHistoryPick(fm, gestureEvent(x, y, false, 0, false))
+	if top := fm.GetTopFrame(); top != dlg {
+		t.Fatalf("a plain click opened %T; with HistoryButtonOnly it must only place the cursor", top)
+	}
+	if edit.curPos != edit.cursorPositionAtX(x) {
+		t.Errorf("the click left the cursor at %d, want %d", edit.curPos, edit.cursorPositionAtX(x))
+	}
+
+	feedHistoryPick(fm, gestureEvent(edit.X2, y, true, vtinput.FromLeft1stButtonPressed, false))
+	if _, ok := fm.GetTopFrame().(*VMenu); !ok {
+		t.Fatalf("a click on the arrow did not open the history, top frame is %T", fm.GetTopFrame())
+	}
+}
+
+func TestEditHistoryButtonOnlyWheelOpensHistory(t *testing.T) {
+	fm, _, edit, _ := historyPickDialog(t)
+	edit.HistoryButtonOnly = true
+	wheel := gestureEvent(edit.X1+1, edit.Y1, true, 0, false)
+	wheel.WheelDirection = -1
+	feedHistoryPick(fm, wheel)
+	if _, ok := fm.GetTopFrame().(*VMenu); !ok {
+		t.Fatalf("the wheel over the field did not open the history, top frame is %T", fm.GetTopFrame())
+	}
+}
+
+// Without HistoryButtonOnly the wheel over a history field opens nothing:
+// the fields of other dialogs keep their behavior.
+func TestEditHistoryWheelWithoutButtonOnlyOpensNothing(t *testing.T) {
+	fm, dlg, edit, _ := historyPickDialog(t)
+	wheel := gestureEvent(edit.X1+1, edit.Y1, true, 0, false)
+	wheel.WheelDirection = -1
+	feedHistoryPick(fm, wheel)
+	if top := fm.GetTopFrame(); top != dlg {
+		t.Fatalf("the wheel opened %T on a field without HistoryButtonOnly", top)
+	}
+}
