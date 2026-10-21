@@ -19,6 +19,10 @@ import (
 
 const logPixelsX = 88
 
+// wmInputLangChange is WM_INPUTLANGCHANGE. It lives here, not with the other
+// messages in win32_gui_common.go, because only the Windows host handles it.
+const wmInputLangChange = 0x0051
+
 var (
 	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
 	procRegisterClassExW   = user32.NewProc("RegisterClassExW")
