@@ -226,7 +226,11 @@ type GogpuHost struct {
 
 	// Cached sizes to prevent deadlocks and speed up GetTerminalSize
 	lastAppW, lastAppH int
-	resizePending      bool
+
+	// dragSteps carries the gogpu drag gesture to the drop target in the
+	// order gogpu reported it (gogpu_dnd_hover.go).
+	dragSteps     gogpuDragSteps
+	resizePending bool
 	// lastScale is the device scale (physical pixels per logical pixel) the
 	// last frame was drawn at; 0 before the first frame. See noteScale.
 	lastScale float64
@@ -664,6 +668,12 @@ func RunGogpuHost(cols, rows int, fontName string, fontSize float64, setupApp fu
 	// drag and drop core takes them from the backend to whatever the
 	// application registered as its target.
 	app.OnDragDrop(host.handleFileDrop)
+	// gogpu reports a drag in progress where the platform does (macOS, X11,
+	// Wayland), so the target can show where a drop would land before it
+	// happens; see gogpu_dnd_hover.go.
+	app.OnDragEnter(host.handleDragEnter)
+	app.OnDragMove(host.handleDragMove)
+	app.OnDragLeave(host.handleDragLeave)
 	SetDragBackend(host)
 	// Copy and paste go through the OS clipboard helpers and the internal
 	// buffer; UseWindowClipboard decides what becomes of the OSC 52 fallback,
