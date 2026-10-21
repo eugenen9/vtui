@@ -5,6 +5,7 @@ package vtui
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 type recordedDrag struct {
@@ -93,6 +94,51 @@ func TestGogpuDragLeaveEndsGesture(t *testing.T) {
 	}
 	if (*got)[3].tracked {
 		t.Fatal("a drop after the drag left the window must be untracked")
+	}
+}
+
+// The callbacks gogpu calls only queue the step; the worker the first one
+// starts delivers the queue in order. A drop that names nothing ends a
+// followed drag as a leave, and a drop after it, with nothing ahead of it,
+// is replayed untracked.
+func TestGogpuDragCallbacksDeliverThroughTheWorker(t *testing.T) {
+	steps := make(chan recordedDrag, 8)
+	withInlineDropTarget(t, func(ev *DragEvent) DropAction {
+		steps <- recordedDrag{ev.Phase, ev.X, ev.Y, ev.Tracked, ev.Payload.Paths, ev.Payload.OffersFiles()}
+		return DropCopy
+	})
+	host := &GogpuHost{cellW: 8, cellH: 16}
+
+	host.handleDragEnter([]string{"/tmp/a.txt"}, 8, 16)
+	host.handleDragMove(40, 48)
+	host.handleDragLeave()
+	host.handleDragEnter(nil, 8, 16) // Wayland: the paths come with the drop
+	host.handleFileDrop([]string{"   "}, 8, 16)
+	host.handleFileDrop([]string{"/tmp/b"}, 8, 16)
+	// Once every step is in, nothing is left for the worker: closing the
+	// channel ends it.
+	t.Cleanup(func() { close(host.dragSteps.wake) })
+
+	want := []recordedDrag{
+		{DragEnter, 1, 1, true, []string{"/tmp/a.txt"}, true},
+		{DragOver, 5, 3, true, []string{"/tmp/a.txt"}, true},
+		{DragLeave, 0, 0, true, nil, false},
+		{DragEnter, 1, 1, true, nil, true},
+		{DragLeave, 0, 0, true, nil, false},
+		{DragEnter, 1, 1, false, []string{"/tmp/b"}, true},
+		{DragDrop, 1, 1, false, []string{"/tmp/b"}, true},
+	}
+	var got []recordedDrag
+	for range want {
+		select {
+		case d := <-steps:
+			got = append(got, d)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the worker delivered %+v and then nothing, want %+v", got, want)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("gesture = %+v\nwant      %+v", got, want)
 	}
 }
 
