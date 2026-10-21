@@ -9,8 +9,6 @@ github.com/go-webgpu/webgpu v0.5.5 h1:pIrXzRg0LRlNjNmR+ZNo/ERN88YaObzbCY5oYhir5S
 github.com/go-webgpu/webgpu v0.5.5/go.mod h1:vgIuNTa1UlZ4njCGY6Pmp/0c5T5o2Ml2fQ0znLc7B98=
 github.com/gogpu/gg v0.52.5 h1:aDAxjwcUYWTaEcKiAVSX52FPtYKtMhuFYCQYK2SwJwE=
 github.com/gogpu/gg v0.52.5/go.mod h1:mKiEGiR8lT7BCECfSoxRYBQ96HrDc0DHv/CNDxYQG5M=
-github.com/gogpu/gogpu v0.53.0 h1:V+HMU+tJxw34LlfNzstUqXD9eXmyhrrBNmnrWxXR+o0=
-github.com/gogpu/gogpu v0.53.0/go.mod h1:pUqsHA1Lo5qi4SNBYuJ1fyMqnwWMn3APHx6K63S3+mc=
 github.com/gogpu/gpucontext v0.28.0 h1:W27+0PRnHLVRscDJ2L6r4B1JlaKjlV/EmL0Wxx8vGIc=
 github.com/gogpu/gpucontext v0.28.0/go.mod h1:5rpKj+DpixgAFm8ArBXFXOZQRbeJSFncVMsqyyA9Rhc=
 github.com/gogpu/gputypes v0.5.2 h1:3sbKI0+XW36Ekd3d4QhkbpdY7gbgMVgp8Q4+ZNdGhtE=
@@ -33,6 +31,8 @@ github.com/neurlang/winc v0.1.2 h1:A3ke70Z7wfk3IKtLRnosKHhNPI6tSt3oG9XTx7lauFU=
 github.com/neurlang/winc v0.1.2/go.mod h1:M3RhPpObvIhmGBJtjVAlCUke88Bf4qAhu9kHqpCkqNA=
 github.com/rivo/uniseg v0.2.0 h1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
+github.com/sogonov/gogpu v0.53.1-drag.1 h1:2u1mhM0lazbg5/If/+QkbdguXGxQPjbN30gxoChlHws=
+github.com/sogonov/gogpu v0.53.1-drag.1/go.mod h1:pUqsHA1Lo5qi4SNBYuJ1fyMqnwWMn3APHx6K63S3+mc=
 github.com/soniakeys/quant v1.0.0 h1:N1um9ktjbkZVcywBVAAYpZYSHxEfJGzshHCxx/DaI0Y=
 github.com/soniakeys/quant v1.0.0/go.mod h1:HI1k023QuVbD4H8i9YdfZP2munIHU4QpjsImz6Y6zds=
 github.com/spaolacci/murmur3 v1.1.0 h1:7c1g84S4BPRrfL5Xrdp6fOJ206sU9y293DDHaoy0bLI=

@@ -256,13 +256,15 @@ func (h *GogpuHost) dropPixels(x, y float64) (float64, float64) {
 func (h *GogpuHost) handleFileDrop(paths []string, x, y float64) {
 	DebugLog("GOGPU_DND: OnDragDrop fired at %.1f,%.1f with %d entry/entries: %q",
 		x, y, len(paths), paths)
-	go h.deliverFileDrop(paths, x, y)
+	h.pushDragStep(gogpuDragStep{phase: DragDrop, paths: paths, x: x, y: y})
 }
 
 // deliverFileDrop replays a finished gogpu drop as the gesture the core
-// expects: exactly one enter, then the drop. There is nothing in between
-// because gogpu reports nothing in between - no motion, no leave, and no
-// word from the source about what it would allow.
+// expects: exactly one enter, then the drop. It is the road for a drop
+// gogpu reported nothing ahead of (Windows, where gogpu has only
+// WM_DROPFILES): no motion, no leave, and no word from the source about
+// what it would allow. A drop that ends a tracked drag goes through
+// deliverTrackedDrop instead.
 func (h *GogpuHost) deliverFileDrop(paths []string, x, y float64) {
 	payload := gogpuDragPayload(paths)
 	if payload.IsEmpty() {

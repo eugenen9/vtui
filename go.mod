@@ -53,3 +53,8 @@ replace github.com/ebitengine/purego => github.com/unxed/pureffi v0.1.21
 replace github.com/go-webgpu/goffi => github.com/unxed/goffi v0.1.9
 
 replace github.com/ebitengine/hideconsole => ./internal/hideconsole
+
+// gogpu v0.53.0 with App.OnDragEnter / OnDragMove / OnDragLeave
+// (gogpu_dnd_hover.go), until gogpu/gogpu#506 is released. A module that
+// imports vtui needs the same replace: Go ignores this one there.
+replace github.com/gogpu/gogpu => github.com/sogonov/gogpu v0.53.1-drag.1
