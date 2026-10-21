@@ -77,8 +77,11 @@ func TestGogpuHostPendingKeyFallback(t *testing.T) {
 				host := textTestHost(t, false, false)
 				host.handleKeyPress(gpucontext.KeyA, 0)
 				// Text arriving through another path can teach the layout while
-				// this physical press is still waiting for its callback.
+				// this physical press is still waiting for its callback. The
+				// fallback timer reads the map under host.mu, so write it there.
+				host.mu.Lock()
 				host.lastRuneForVK = map[uint16]rune{vtinput.VK_A: 'ф'}
+				host.mu.Unlock()
 				switch flush {
 				case "next press":
 					host.handleKeyPress(gpucontext.KeyF1, 0)
