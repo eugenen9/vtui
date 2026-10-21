@@ -18,8 +18,8 @@ require (
 	github.com/unxed/keytrans v0.1.35
 	github.com/unxed/kiwi-go v0.1.0
 	github.com/unxed/libwinescape v0.2.1
-	github.com/unxed/vtinput v0.1.11
-	github.com/unxed/winkeys v0.1.1
+	github.com/unxed/vtinput v0.1.12
+	github.com/unxed/winkeys v0.1.2
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
@@ -54,11 +54,9 @@ replace github.com/go-webgpu/goffi => github.com/unxed/goffi v0.1.9
 
 replace github.com/ebitengine/hideconsole => ./internal/hideconsole
 
-replace github.com/unxed/winkeys => github.com/uranic2/winkeys v0.0.0-20261012155219-35669ea25770
 
-replace github.com/unxed/vtinput => github.com/uranic2/vtinput v0.0.0-20261012155615-7fd23cf8705b
 
 // gogpu v0.53.0 with App.OnDragEnter / OnDragMove / OnDragLeave (gogpu/gogpu#506)
 // and the native key and committed text events (gogpu/gogpu#503), until both are
 // released. A module that imports vtui needs the same replace: Go ignores this one there.
-replace github.com/gogpu/gogpu => github.com/unxed/gogpu v0.0.0-20261021200915-fbfda45749c3
+replace github.com/gogpu/gogpu => github.com/unxed/gogpu v0.53.1-drag.1-altgr.1
