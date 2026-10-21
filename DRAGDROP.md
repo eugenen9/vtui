@@ -17,6 +17,19 @@ answer is what gives the pointer its copy / move cursor, so it must be quick
 and must not open dialogs. `DragDrop` is the phase where the work actually
 starts; start it in the background and return.
 
+`ev.Tracked` says whether the backend followed the drag while it moved. When
+it is true, the `DragEnter` / `DragOver` steps came as the pointer moved, so
+a highlight shown for them was on screen before the drop and the user could
+aim at it. When it is false, the backend learnt of nothing but the drop and
+replays the gesture at the drop: nothing was shown, and a target that drops
+into whatever lies under the pointer drops somewhere the user never saw.
+
+A tracked drag that rests on a workspace tab for `WorkspaceDragDwell`
+(half a second) brings that workspace up, so files can be dropped into it
+without letting go first (dragdrop_workspace.go). While the drag is over the
+tab row the target sees a `DragLeave`, and a `DragEnter` when it comes back;
+the tabs take no drop themselves.
+
 To hand files to other applications:
 
     action, err := vtui.StartDrag(payload, vtui.DropCopy|vtui.DropMove)
@@ -39,6 +52,8 @@ Then, for every step of an incoming gesture, build a `DragEvent` and call
   anything that is not a local file in `Payload.URIs`;
 - send exactly one `DragEnter`, any number of `DragOver`, and then one
   `DragLeave` or one `DragDrop`;
+- set `Tracked` when the steps come as the pointer moves, and leave it false
+  for a gesture replayed at the drop;
 - report the returned `DropAction` back to the source as the protocol
   requires.
 
@@ -92,9 +107,18 @@ debug.log, and which line is *missing* says where the gesture died:
   finished drop and nothing before it, so neither the actions the source
   allows nor the modifiers held are known, and nothing travels back to the
   source either, which is the one thing a move would need
-- gogpu limitation: nothing arrives before the drop, so a target cannot
-  highlight anything while the pointer is still moving. The gesture is
-  replayed as one enter immediately followed by the drop
+- gogpu: a drag in progress arrives through OnDragEnter / OnDragMove /
+  OnDragLeave where gogpu's platform reports it - macOS, X11, Wayland - and
+  is delivered tracked (gogpu_dnd_hover.go). The callbacks only queue the
+  step; one worker delivers the queue in order, folding a run of waiting
+  moves into the newest, because delivery waits for the UI thread and the
+  callbacks run on the loop that draws the window. The callbacks are
+  gogpu/gogpu#506, not released yet: go.mod replaces gogpu with
+  sogonov/gogpu (v0.53.0 plus that commit), and a module importing vtui
+  needs the same replace
+- gogpu limitation: on Windows gogpu has only WM_DROPFILES, so nothing
+  arrives before the drop there, and the gesture is replayed as one
+  untracked enter immediately followed by the drop
   - gogpu, X11, unfixed as of 0.50.1: a drop from another application is
     lost more often than it arrives - measured at 4 callbacks in 10 attempts
     - and the position of the ones that do arrive is always 0,0. Both come
@@ -135,7 +159,13 @@ debug.log, and which line is *missing* says where the gesture died:
 - Windows under Wine: a drag out reaches other Wine windows only. Wine
   bridges XDND into OLE for drops coming in, but has no bridge the other
   way, so a payload offered to a native X11 application finds no target and
-  the pointer says no. That is upstream, not here
+  the pointer says no. That is upstream, not here. The XDND source half is
+  exported as X11DragSource for a program that talks to the real X server
+  itself (f4 does, through libwinescape): it needs only a connection and a
+  window of its own, and BorrowPointer makes it leave the pointer alone, since
+  Wine holds it from the button press and the server refuses a second grab;
+  SkipTargets keeps the drag off the program's own windows, which the host's
+  X server would otherwise offer it while the program waits on the gesture
 - macOS outside gogpu: planned
 - terminals: no protocol exists; nothing is registered, so both directions
   are reported as unsupported rather than half working

@@ -58,4 +58,7 @@ replace github.com/unxed/winkeys => github.com/uranic2/winkeys v0.0.0-2026101215
 
 replace github.com/unxed/vtinput => github.com/uranic2/vtinput v0.0.0-20261012155615-7fd23cf8705b
 
-replace github.com/gogpu/gogpu => github.com/uranic2/gogpu v0.0.0-20261012163327-2d133f83dc34
+// gogpu v0.53.0 with App.OnDragEnter / OnDragMove / OnDragLeave (gogpu/gogpu#506)
+// and the native key and committed text events (gogpu/gogpu#503), until both are
+// released. A module that imports vtui needs the same replace: Go ignores this one there.
+replace github.com/gogpu/gogpu => github.com/unxed/gogpu v0.0.0-20261021200915-fbfda45749c3

@@ -296,9 +296,12 @@ type frameManager struct {
 	WorkspaceAttentionAttr   uint64
 	workspaceColorsSet       bool
 	workspaceTabHits         []workspaceTabHit
-	workspaceNewTabX         int
-	workspaceTabDrag         *AppScreen
-	workspaceTabDragHits     []workspaceTabHit
+	// workspaceDrag is a drag of files resting on the workspace tabs
+	// (dragdrop_workspace.go).
+	workspaceDrag        workspaceDragState
+	workspaceNewTabX     int
+	workspaceTabDrag     *AppScreen
+	workspaceTabDragHits []workspaceTabHit
 	// The UI graph itself stays single-goroutine-owned. These atomics only
 	// coordinate callers which need to stop that goroutine or observe that its
 	// shutdown has completed.
@@ -3381,6 +3384,11 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 				}
 
 				if f.IsModal() {
+					// A frame that opts out swallows the click: nothing
+					// behind it is reachable, and nothing is cancelled.
+					if oc, ok := f.(interface{ IsOutsideClickIgnored() bool }); ok && oc.IsOutsideClickIgnored() {
+						break
+					}
 					// Logic for clicking OUTSIDE of a modal frame:
 					// LMB -> ESC (cancel).
 					// RMB -> ENTER (confirm the default action) for a

@@ -1,10 +1,6 @@
 package vtui
 
-import (
-	"fmt"
-
-	"github.com/unxed/vtinput"
-)
+import "github.com/unxed/vtinput"
 
 // BaseWindow provides generic windowing logic (moving, resizing, focus cycle).
 type BaseWindow struct {
@@ -170,18 +166,17 @@ func (bw *BaseWindow) Show(scr *ScreenBuf) {
 
 	bw.frame.DisplayObject(scr)
 
+	painter := NewPainter(scr)
 	if bw.ShowZoom {
-		zoomStr := string(UIStrings.CloseBrackets[0]) + string(UIStrings.ZoomSymbol) + string(UIStrings.CloseBrackets[1])
 		offset := bw.frame.getControlOffset()
 		if bw.ShowClose {
 			offset += 3
 		}
 		controlAttr := withForeground(Palette[bw.frame.ColorBoxIdx], Palette[bw.frame.ColorTitleIdx])
-		scr.Write(bw.X2-offset, bw.Y1, StringToCharInfo(zoomStr, controlAttr))
+		painter.DrawZoomButton(bw.X2-offset, bw.Y1, controlAttr)
 	}
 	if bw.Number > 0 && bw.Number <= 9 {
-		numStr := fmt.Sprintf("%c%d%c", UIStrings.CloseBrackets[0], bw.Number, UIStrings.CloseBrackets[1])
-		scr.Write(bw.X1+2, bw.Y1, StringToCharInfo(numStr, Palette[bw.frame.ColorBoxIdx]))
+		painter.DrawWindowNumber(bw.X1+2, bw.Y1, bw.Number, Palette[bw.frame.ColorBoxIdx])
 	}
 
 	// Enter's target is decided by TriggerDefaultAction; draw the same one.

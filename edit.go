@@ -60,6 +60,10 @@ type Edit struct {
 	// editable path (f4 #1392).
 	historyClickArmed bool
 	historyMouseMoved bool
+	// HistoryButtonOnly keeps a plain click in a history field's body to
+	// placing the cursor there: the drop-down opens only on the arrow at the
+	// right edge or on the mouse wheel over the field (f4 #2124).
+	HistoryButtonOnly bool
 }
 
 // HistoryProvider is an interface for external history persistence (e.g. from f4).
@@ -325,11 +329,7 @@ func (e *Edit) DisplayObject(scr *ScreenBuf) {
 
 		attr := defaultAttr
 		if e.selStart != -1 && runeIdx >= e.selStart && runeIdx < e.selEnd {
-			selectedIdx := e.ColorSelectedIdx
-			if e.clearFlag {
-				selectedIdx = e.ColorUnchangedIdx
-			}
-			attr = e.GetStateAttr(selectedIdx, selectedIdx)
+			attr = e.GetStateAttr(e.ColorSelectedIdx, e.ColorSelectedIdx)
 		}
 		if e.IsDisabled() {
 			attr = DimColor(attr)
@@ -1248,6 +1248,10 @@ func (e *Edit) ProcessMouse(ev *vtinput.InputEvent) bool {
 	if e.IsDisabled() {
 		return false
 	}
+	if ev.WheelDirection != 0 && e.HistoryButtonOnly && e.ShowHistoryButton && e.HitTest(int(ev.MouseX), int(ev.MouseY)) {
+		e.OpenHistory()
+		return true
+	}
 	if e.mouseSelecting {
 		if IsMouseRelease(ev) {
 			e.mouseSelecting = false
@@ -1299,7 +1303,7 @@ func (e *Edit) ProcessMouse(ev *vtinput.InputEvent) bool {
 				// A history field's whole area opens the drop-down on a
 				// plain click, same as a DropdownOnly ComboBox's field; a
 				// click that turns into a drag selects text instead.
-				e.historyClickArmed = e.ShowHistoryButton
+				e.historyClickArmed = e.ShowHistoryButton && !e.HistoryButtonOnly
 				e.historyMouseMoved = false
 				return true
 			}

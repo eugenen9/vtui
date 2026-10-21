@@ -20,6 +20,7 @@ type mockFrame struct {
 	tabTitle           string
 	tabMarker          string
 	resizedW, resizedH int
+	onResize           func(w, h int)
 }
 
 type closeVetoFrame struct {
@@ -40,6 +41,9 @@ func (f *closeVetoFrame) Close() {
 
 func (m *mockFrame) ResizeConsole(w, h int) {
 	m.resizedW, m.resizedH = w, h
+	if m.onResize != nil {
+		m.onResize(w, h)
+	}
 }
 
 func newMockFrame(x, y, w, h int, modal bool) *mockFrame {
@@ -365,7 +369,7 @@ func TestFrameManager_Toast(t *testing.T) {
 	select {
 	case task := <-fm.TaskChan:
 		task()
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Toast task not posted")
 	}
 
@@ -936,6 +940,45 @@ func TestFrameManager_ModalOutsideClicks(t *testing.T) {
 	}
 }
 
+// TestFrameManager_ModalOutsideClicks_Ignored pins unxed/f4#1894: a modal
+// frame that sets OutsideClickIgnored (a running copy's progress window)
+// must survive a press that missed it, with either button. The click is
+// still swallowed -- it must not reach the frame below.
+func TestFrameManager_ModalOutsideClicks_Ignored(t *testing.T) {
+	SetDefaultPalette()
+	fm := &frameManager{}
+	fm.Init(NewSilentScreenBuf())
+	fm.Push(NewDesktop())
+
+	dlg := NewDialog(10, 10, 30, 20, "Progress")
+	btn := NewButton(1, 1, "Cancel")
+	btn.IsDefault = true
+	btn.OnClick = func() { dlg.SetExitCode(42) }
+	dlg.AddItem(btn)
+	dlg.OutsideClickIgnored = true
+	fm.Push(dlg)
+
+	for name, ev := range map[string]*vtinput.InputEvent{
+		"LMB": {Type: vtinput.MouseEventType, KeyDown: true, MouseX: 5, MouseY: 5, ButtonState: vtinput.FromLeft1stButtonPressed},
+		"RMB": {Type: vtinput.MouseEventType, KeyDown: true, MouseX: 5, MouseY: 5, ButtonState: vtinput.RightmostButtonPressed},
+	} {
+		fm.dispatchEvent(ev, false)
+		if dlg.IsDone() {
+			t.Fatalf("%s outside an OutsideClickIgnored dialog closed it (exit code %d)", name, dlg.ExitCode)
+		}
+	}
+
+	// Esc from the keyboard still cancels: only the stray click is ignored.
+	fm.dispatchEvent(&vtinput.InputEvent{
+		Type:           vtinput.KeyEventType,
+		KeyDown:        true,
+		VirtualKeyCode: vtinput.VK_ESCAPE,
+	}, false)
+	if !dlg.IsDone() || dlg.ExitCode != -1 {
+		t.Errorf("Esc on the dialog: done=%v exit code=%d, want done with -1", dlg.IsDone(), dlg.ExitCode)
+	}
+}
+
 // TestFrameManager_ModalOutsideClicks_MenuDismissesOnRMB pins the fix
 // for unxed/f4#396: the RMB-outside → ENTER shortcut is Far-style
 // muscle memory for confirming a dialog's default button, but for a
@@ -1244,10 +1287,19 @@ func TestFrameManager_SizePolling(t *testing.T) {
 	defer func() { GetTerminalSize = oldGetSize }()
 
 	var mockW, mockH atomic.Int64
+	sizeRead := make(chan struct{}, 1)
 	mockW.Store(80)
 	mockH.Store(24)
 	GetTerminalSize = func() (int, int, error) {
-		return int(mockW.Load()), int(mockH.Load()), nil
+		// Read the size before signalling: if the signal went first, the test
+		// could store 100x30 before this call loads it, the poller would take
+		// 100x30 as its baseline and never see a change.
+		w, h := int(mockW.Load()), int(mockH.Load())
+		select {
+		case sizeRead <- struct{}{}:
+		default:
+		}
+		return w, h, nil
 	}
 
 	fm := &frameManager{}
@@ -1257,6 +1309,15 @@ func TestFrameManager_SizePolling(t *testing.T) {
 
 	f1 := &mockFrame{}
 	fm.Push(f1)
+	resized := make(chan struct{}, 1)
+	f1.onResize = func(w, h int) {
+		if w == 100 && h == 30 {
+			select {
+			case resized <- struct{}{}:
+			default:
+			}
+		}
+	}
 
 	done := make(chan struct{})
 	pr, pw := io.Pipe()
@@ -1267,15 +1328,29 @@ func TestFrameManager_SizePolling(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for loop and polling goroutine to start
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the polling goroutine to take its initial size sample before
+	// changing the mock; otherwise a slow runner can make the change its baseline.
+	select {
+	case <-sizeRead:
+	case <-time.After(30 * time.Second):
+		fm.Stop()
+		_ = pw.Close()
+		<-done
+		t.Fatal("terminal-size poller did not take its initial sample")
+	}
 
 	// Change mock size to trigger polling mechanism
 	mockW.Store(100)
 	mockH.Store(30)
 
-	// Wait for the polling interval (200ms) + buffer time
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-resized:
+	case <-time.After(30 * time.Second):
+		fm.Stop()
+		_ = pw.Close()
+		<-done
+		t.Fatal("terminal-size poller did not resize the frame")
+	}
 
 	fm.Stop()
 	pw.Close()
@@ -1760,10 +1835,13 @@ func TestFrameManager_PostTaskNonBlocking(t *testing.T) {
 		done <- true
 	}()
 
+	// The return must come: a slow runner may take longer than 100 ms just
+	// to schedule the goroutine (red main vtui bdeee03aa, darwin/arm64), and
+	// a real block still fails after 30 s.
 	select {
 	case <-done:
 		// Успех: PostTask больше не блокирует поток
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(30 * time.Second):
 		t.Error("PostTask STILL blocks on full channel (regression!)")
 	}
 }
@@ -2845,8 +2923,12 @@ func TestFrameManager_DoubleClickDetection(t *testing.T) {
 	}
 	fm.Push(frame)
 
+	// Synthetic clock: real sleeps against the 400ms multi-click window
+	// flake on overloaded CI runners (macOS Intel stretched a 100ms sleep
+	// past the window), so the test advances time explicitly.
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	dispatch := func(e *vtinput.InputEvent) {
-		fm.markMultiClick(e, time.Now())
+		fm.markMultiClick(e, now)
 		frame.ProcessMouse(e)
 	}
 
@@ -2857,14 +2939,14 @@ func TestFrameManager_DoubleClickDetection(t *testing.T) {
 	}
 
 	// 2. Fast second click, same spot - IS double click
-	time.Sleep(100 * time.Millisecond)
+	now = now.Add(100 * time.Millisecond)
 	dispatch(&vtinput.InputEvent{Type: vtinput.MouseEventType, KeyDown: true, MouseX: 10, MouseY: 10, ButtonState: vtinput.FromLeft1stButtonPressed})
 	if (lastEvent.MouseEventFlags & vtinput.DoubleClick) == 0 {
 		t.Error("Fast second click was not detected as double click")
 	}
 
 	// 3. Fast third click, same spot - IS triple click
-	time.Sleep(100 * time.Millisecond)
+	now = now.Add(100 * time.Millisecond)
 	dispatch(&vtinput.InputEvent{Type: vtinput.MouseEventType, KeyDown: true, MouseX: 10, MouseY: 10, ButtonState: vtinput.FromLeft1stButtonPressed})
 	if (lastEvent.MouseEventFlags & TripleClick) == 0 {
 		t.Error("Fast third click was not detected as triple click")
@@ -2874,21 +2956,21 @@ func TestFrameManager_DoubleClickDetection(t *testing.T) {
 	}
 
 	// 4. Slow next click - no multi-click
-	time.Sleep(500 * time.Millisecond)
+	now = now.Add(500 * time.Millisecond)
 	dispatch(&vtinput.InputEvent{Type: vtinput.MouseEventType, KeyDown: true, MouseX: 10, MouseY: 10, ButtonState: vtinput.FromLeft1stButtonPressed})
 	if (lastEvent.MouseEventFlags & (vtinput.DoubleClick | TripleClick)) != 0 {
 		t.Error("Slow click should not be a multi-click")
 	}
 
 	// 5. Fast click, different spot - no double click
-	time.Sleep(100 * time.Millisecond)
+	now = now.Add(100 * time.Millisecond)
 	dispatch(&vtinput.InputEvent{Type: vtinput.MouseEventType, KeyDown: true, MouseX: 11, MouseY: 10, ButtonState: vtinput.FromLeft1stButtonPressed})
 	if (lastEvent.MouseEventFlags & vtinput.DoubleClick) != 0 {
 		t.Error("Click in different spot should not be a double click")
 	}
 
 	// 6. Fast click, different button - no double click
-	time.Sleep(100 * time.Millisecond)
+	now = now.Add(100 * time.Millisecond)
 	dispatch(&vtinput.InputEvent{Type: vtinput.MouseEventType, KeyDown: true, MouseX: 11, MouseY: 10, ButtonState: vtinput.RightmostButtonPressed})
 	if (lastEvent.MouseEventFlags & vtinput.DoubleClick) != 0 {
 		t.Error("Click with different button should not be a double click")
@@ -3291,8 +3373,11 @@ func TestFrameManager_WaitFar2lResponse_NilEvent(t *testing.T) {
 		fm.EventChan <- nil
 		time.Sleep(10 * time.Millisecond)
 
+		// Poll until the waiter registers, bounded by a deadline rather than
+		// an iteration count: on an overloaded runner 100 x 1ms sleeps can
+		// outlast a short WaitFar2lResponse timeout and the reply is lost.
 		var ch chan *vtinput.Far2lStack
-		for i := 0; i < 100; i++ {
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 			fm.far2lMu.Lock()
 			if fm.pendingFar2l != nil {
 				ch = fm.pendingFar2l[42]
@@ -3310,7 +3395,9 @@ func TestFrameManager_WaitFar2lResponse_NilEvent(t *testing.T) {
 	}()
 
 	// WaitFar2lResponse should skip nil without panicking and return valid response
-	res := fm.WaitFar2lResponse(42, 150*time.Millisecond)
+	// The reply arrives as soon as the waiter registers, so a generous
+	// timeout costs nothing on a healthy run.
+	res := fm.WaitFar2lResponse(42, 5*time.Second)
 	if res == nil {
 		t.Error("WaitFar2lResponse returned nil, expected valid response after skipping nil event")
 	}
