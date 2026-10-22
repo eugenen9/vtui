@@ -1,6 +1,7 @@
 package vtui
 
 import (
+	"slices"
 	"unicode"
 
 	"github.com/unxed/vtinput"
@@ -9,9 +10,10 @@ import (
 type Edit struct {
 	ScreenObject
 	text               []rune
-	curPos             int // Logical position in the runes string
-	leftPos            int // Visual offset (scrolling)
-	selStart           int // -1 if no selection
+	clusterCache       editClusterCache // clusters of the text as last painted
+	curPos             int              // Logical position in the runes string
+	leftPos            int              // Visual offset (scrolling)
+	selStart           int              // -1 if no selection
 	selEnd             int
 	selAnchor          int // Position where selection started
 	overtype           bool
@@ -157,17 +159,21 @@ func (e *Edit) cellWidth(i int) int {
 // became wider -- a resized dialog, a relaid-out settings page -- kept
 // showing the tail it had scrolled to, with unused columns after it. widths
 // holds the column width of every position in display order.
-func (e *Edit) fillView(widths []int, visibleWidth int) {
+func (e *Edit) fillView(n int, width func(int) int, visibleWidth int) {
 	tail := 0
-	for i := e.leftPos; i < len(widths); i++ {
-		tail += widths[i]
+	for i := e.leftPos; i < n; i++ {
+		tail += width(i)
+		if tail >= visibleWidth {
+			// The rest does not matter: nothing can be scrolled back.
+			return
+		}
 	}
 	// Stop one column short: the caret sits after the last character, and
 	// filling the final column would scroll the view forward again on the
 	// next repaint.
-	for e.leftPos > 0 && tail+widths[e.leftPos-1] < visibleWidth {
+	for e.leftPos > 0 && tail+width(e.leftPos-1) < visibleWidth {
 		e.leftPos--
-		tail += widths[e.leftPos]
+		tail += width(e.leftPos)
 	}
 }
 
@@ -210,7 +216,7 @@ func (e *Edit) Show(scr *ScreenBuf) {
 		if e.leftPos > 0 {
 			var widths []int
 			forEachTerminalCluster(vis, func(_ string, w, _, _ int) { widths = append(widths, w) })
-			e.fillView(widths, visibleWidth)
+			e.fillView(len(widths), func(i int) int { return widths[i] }, visibleWidth)
 		}
 	} else {
 		if e.curPos < e.leftPos {
@@ -225,11 +231,7 @@ func (e *Edit) Show(scr *ScreenBuf) {
 			e.leftPos++
 		}
 		if e.leftPos > 0 {
-			widths := make([]int, len(e.text))
-			for i := range e.text {
-				widths[i] = e.cellWidth(i)
-			}
-			e.fillView(widths, visibleWidth)
+			e.fillView(len(e.text), e.cellWidth, visibleWidth)
 		}
 	}
 
@@ -316,55 +318,17 @@ func (e *Edit) DisplayObject(scr *ScreenBuf) {
 	defaultAttr := e.GetStateAttr(e.ColorTextIdx, e.ColorTextIdx)
 	scr.FillRect(e.X1, e.Y1, e.X2, e.Y1, ' ', defaultAttr)
 
-	type logicalCluster struct {
-		text    string
-		runeIdx int
-		width   int
-		attr    uint64
-	}
+	visualClusters := e.displayClusters()
 
-	var logicalClusters []logicalCluster
-	sText := string(e.text)
-	forEachTerminalCluster(sText, func(clText string, width, _, runeIdx int) {
-
+	currX := 0
+	for i := e.leftPos; i < len(visualClusters); i++ {
+		c := visualClusters[i]
 		attr := defaultAttr
-		if e.selStart != -1 && runeIdx >= e.selStart && runeIdx < e.selEnd {
+		if e.selStart != -1 && c.runeIdx >= e.selStart && c.runeIdx < e.selEnd {
 			attr = e.GetStateAttr(e.ColorSelectedIdx, e.ColorSelectedIdx)
 		}
 		if e.IsDisabled() {
 			attr = DimColor(attr)
-		}
-
-		logicalClusters = append(logicalClusters, logicalCluster{
-			text:    clText,
-			runeIdx: runeIdx,
-			width:   width,
-			attr:    attr,
-		})
-	})
-
-	visualClusters := make([]logicalCluster, 0, len(logicalClusters))
-	byRuneIndex := make(map[int]logicalCluster, len(logicalClusters))
-	for _, c := range logicalClusters {
-		byRuneIndex[c.runeIdx] = c
-	}
-	// The cells are painted in the order the line is read on screen, which
-	// ForEachVisualCluster resolves with the full bidi algorithm; the
-	// per-cluster attributes computed above travel with their clusters.
-	ForEachVisualCluster(string(e.text), func(text string, _, _, runeIdx int) {
-		if c, ok := byRuneIndex[runeIdx]; ok {
-			c.text = text
-			visualClusters = append(visualClusters, c)
-		}
-	})
-	if len(visualClusters) != len(logicalClusters) {
-		visualClusters = logicalClusters
-	}
-
-	currX := 0
-	for i, c := range visualClusters {
-		if i < e.leftPos {
-			continue
 		}
 		w := c.width
 		if currX+w > visibleWidth {
@@ -372,9 +336,9 @@ func (e *Edit) DisplayObject(scr *ScreenBuf) {
 		}
 
 		if e.PasswordMode {
-			scr.FillRect(e.X1+currX, e.Y1, e.X1+currX+w-1, e.Y1, '*', c.attr)
+			scr.FillRect(e.X1+currX, e.Y1, e.X1+currX+w-1, e.Y1, '*', attr)
 		} else {
-			cells := AppendCluster(nil, c.text, w, c.attr)
+			cells := AppendCluster(nil, c.text, w, attr)
 			scr.Write(e.X1+currX, e.Y1, cells)
 		}
 		currX += w
@@ -1415,4 +1379,56 @@ func (e *Edit) cursorPositionAtX(x int) int {
 		})
 	}
 	return result
+}
+
+// editCluster is one terminal cluster of the text of an edit line, in the
+// order it is painted.
+type editCluster struct {
+	text    string
+	runeIdx int
+	width   int
+}
+
+// editClusterCache keeps the clusters of the text painted last. Splitting the
+// text into clusters and ordering them for display is linear in the length of
+// the whole text and was done for every frame; a line of 10 KiB made each
+// frame cost most of a tenth of a second (unxed/vtui#246).
+type editClusterCache struct {
+	text     []rune
+	clusters []editCluster
+	valid    bool
+	builds   int // how many times the clusters were computed
+}
+
+// displayClusters returns the clusters of the text in display order.
+func (e *Edit) displayClusters() []editCluster {
+	c := &e.clusterCache
+	if c.valid && slices.Equal(c.text, e.text) {
+		return c.clusters
+	}
+	c.builds++
+	var logical []editCluster
+	forEachTerminalCluster(string(e.text), func(clText string, width, _, runeIdx int) {
+		logical = append(logical, editCluster{text: clText, runeIdx: runeIdx, width: width})
+	})
+	visual := make([]editCluster, 0, len(logical))
+	byRuneIndex := make(map[int]editCluster, len(logical))
+	for _, cl := range logical {
+		byRuneIndex[cl.runeIdx] = cl
+	}
+	// The cells are painted in the order the line is read on screen, which
+	// ForEachVisualCluster resolves with the full bidi algorithm.
+	ForEachVisualCluster(string(e.text), func(text string, _, _, runeIdx int) {
+		if cl, ok := byRuneIndex[runeIdx]; ok {
+			cl.text = text
+			visual = append(visual, cl)
+		}
+	})
+	if len(visual) != len(logical) {
+		visual = logical
+	}
+	c.text = append(c.text[:0], e.text...)
+	c.clusters = visual
+	c.valid = true
+	return visual
 }
