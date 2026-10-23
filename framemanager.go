@@ -218,6 +218,7 @@ func (s *AppScreen) NeedsAttention() bool {
 
 // frameManager manages multiple screens and the main application loop.
 type frameManager struct {
+	pasting bool // between the marks of a bracketed paste: the keys are not logged one by one
 	// renderLogCount paces the debug line of renderPhase: the first render and
 	// then one in every renderLogEvery, whatever the clock says.
 	renderLogCount    uint
@@ -2964,7 +2965,15 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 		return false
 	}
 	fm.keyRepeat.observe(ev, is_injected)
-	DebugLog("FM_DISPATCH: Received event: %s", ev.String())
+	if ev.Type == vtinput.PasteEventType {
+		fm.pasting = ev.PasteStart
+	}
+	// The keys of a paste are logged by the marks around them: a paste of a
+	// megabyte is a million events, and formatting three log lines for each of
+	// them took a quarter of the time of the loop (unxed/f4#2157).
+	if !fm.pasting {
+		DebugLog("FM_DISPATCH: Received event: %s", ev.String())
+	}
 	// Translator Tool: Ctrl+Alt+RightClick
 	if ev.Type == vtinput.MouseEventType && ev.ButtonState == vtinput.RightmostButtonPressed && ev.KeyDown {
 		ctrl := (ev.ControlKeyState & (vtinput.LeftCtrlPressed | vtinput.RightCtrlPressed)) != 0
@@ -3175,7 +3184,9 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 	// --- Menu Interception ---
 	if ev.Type == vtinput.KeyEventType && ev.KeyDown {
 
-		DebugLog("INPUT: KeyPress VK=%s Char=%d (Stack: %d frames, ActiveIdx: %d)", vtinput.VKString(ev.VirtualKeyCode), ev.Char, len(fm.frames), fm.ActiveIdx)
+		if !fm.pasting {
+			DebugLog("INPUT: KeyPress VK=%s Char=%d (Stack: %d frames, ActiveIdx: %d)", vtinput.VKString(ev.VirtualKeyCode), ev.Char, len(fm.frames), fm.ActiveIdx)
+		}
 
 		// 1. If Menu is Active, it has priority.
 		// We allow it even if topFrame is modal, provided topFrame IS the menu itself
@@ -3203,7 +3214,9 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 			return true // Don't pass keys to background frames when menu is active
 		}
 	} else if ev.Type == vtinput.KeyEventType && !ev.KeyDown {
-		DebugLog("INPUT: KeyRelease VK=%s Char=%d (Stack: %d frames, ActiveIdx: %d)", vtinput.VKString(ev.VirtualKeyCode), ev.Char, len(fm.frames), fm.ActiveIdx)
+		if !fm.pasting {
+			DebugLog("INPUT: KeyRelease VK=%s Char=%d (Stack: %d frames, ActiveIdx: %d)", vtinput.VKString(ev.VirtualKeyCode), ev.Char, len(fm.frames), fm.ActiveIdx)
+		}
 	}
 
 	// Alt+1..9 selects the workspace whose stable displayed number matches the
@@ -3232,7 +3245,9 @@ func (fm *frameManager) dispatchEvent(ev *vtinput.InputEvent, is_injected bool) 
 
 	if ev.Type == vtinput.KeyEventType || ev.Type == vtinput.PasteEventType || ev.Type == vtinput.FocusEventType {
 		handled = topFrame.ProcessKey(ev)
-		DebugLog("FM_DISPATCH: TopFrame.ProcessKey handled=%v", handled)
+		if !fm.pasting {
+			DebugLog("FM_DISPATCH: TopFrame.ProcessKey handled=%v", handled)
+		}
 	} else if ev.Type == vtinput.MouseEventType {
 		mx, my := int(ev.MouseX), int(ev.MouseY)
 		if ev.ButtonState != 0 || ev.WheelDirection != 0 {
