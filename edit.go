@@ -189,33 +189,22 @@ func (e *Edit) Show(scr *ScreenBuf) {
 	}
 
 	if DefaultBidiMode == BidiFull {
-		cmap := e.caretMap()
+		cmap, widths := e.bidiLayout()
 		vPos := cmap.LogicalToVisual[e.curPos]
 		if vPos < e.leftPos {
 			e.leftPos = vPos
 		}
-		vis, _ := VisualStringWithRuneMap(string(e.text))
 		width := 0
-		vIdx := 0
-		forEachTerminalCluster(vis, func(_ string, w, _, _ int) {
-			if vIdx >= e.leftPos && vIdx < vPos {
-				width += w
-			}
-			vIdx++
-		})
+		for i := e.leftPos; i < vPos && i < len(widths); i++ {
+			width += widths[i]
+		}
 		for e.leftPos < vPos && width >= visibleWidth {
-			vIdx2 := 0
-			forEachTerminalCluster(vis, func(_ string, w, _, _ int) {
-				if vIdx2 == e.leftPos {
-					width -= w
-				}
-				vIdx2++
-			})
+			if e.leftPos < len(widths) {
+				width -= widths[e.leftPos]
+			}
 			e.leftPos++
 		}
 		if e.leftPos > 0 {
-			var widths []int
-			forEachTerminalCluster(vis, func(_ string, w, _, _ int) { widths = append(widths, w) })
 			e.fillView(len(widths), func(i int) int { return widths[i] }, visibleWidth)
 		}
 	} else {
@@ -246,19 +235,11 @@ func (e *Edit) Show(scr *ScreenBuf) {
 		}
 		vOffset := 0
 		if DefaultBidiMode == BidiFull {
-			cmap := e.caretMap()
+			cmap, widths := e.bidiLayout()
 			vPos := cmap.LogicalToVisual[e.curPos]
-			vis, _ := VisualStringWithRuneMap(string(e.text))
-			vIdx := 0
-			forEachTerminalCluster(vis, func(_ string, w, _, _ int) {
-				if vIdx >= vPos {
-					return
-				}
-				if vIdx >= e.leftPos {
-					vOffset += w
-				}
-				vIdx++
-			})
+			for i := e.leftPos; i < vPos && i < len(widths); i++ {
+				vOffset += widths[i]
+			}
 		} else {
 			headText := string(e.text[e.leftPos:e.curPos])
 			vOffset = StringWidth(headText)
@@ -1398,6 +1379,14 @@ type editClusterCache struct {
 	clusters []editCluster
 	valid    bool
 	builds   int // how many times the clusters were computed
+
+	// The layout of a right-to-left aware line (BidiFull): the caret map and the
+	// column width of every cluster of the visual string.
+	bidiValid  bool
+	bidiText   []rune
+	bidiCaret  CaretMap
+	bidiWidths []int
+	bidiBuilds int
 }
 
 // displayClusters returns the clusters of the text in display order.
@@ -1431,4 +1420,22 @@ func (e *Edit) displayClusters() []editCluster {
 	c.clusters = visual
 	c.valid = true
 	return visual
+}
+
+// bidiLayout returns the caret map of the text and the widths of the clusters of
+// its visual string, kept until the text changes.
+func (e *Edit) bidiLayout() (CaretMap, []int) {
+	c := &e.clusterCache
+	if c.bidiValid && slices.Equal(c.bidiText, e.text) {
+		return c.bidiCaret, c.bidiWidths
+	}
+	c.bidiBuilds++
+	vis, _ := VisualStringWithRuneMap(string(e.text))
+	var widths []int
+	forEachTerminalCluster(vis, func(_ string, w, _, _ int) { widths = append(widths, w) })
+	c.bidiCaret = BuildCaretMap(string(e.text))
+	c.bidiWidths = widths
+	c.bidiText = append(c.bidiText[:0], e.text...)
+	c.bidiValid = true
+	return c.bidiCaret, widths
 }
