@@ -218,7 +218,8 @@ func (s *AppScreen) NeedsAttention() bool {
 
 // frameManager manages multiple screens and the main application loop.
 type frameManager struct {
-	pasting bool // between the marks of a bracketed paste: the keys are not logged one by one
+	lastRender time.Time // when the screen was last drawn by the event loop
+	pasting    bool      // between the marks of a bracketed paste: the keys are not logged one by one
 	// renderLogCount paces the debug line of renderPhase: the first render and
 	// then one in every renderLogEvery, whatever the clock says.
 	renderLogCount    uint
@@ -1235,7 +1236,12 @@ func (fm *frameManager) stepWithSize(timeout time.Duration, getSize func() (int,
 	}
 
 	if fm.needsRender.Swap(false) {
-		fm.renderPhase()
+		if fm.shouldDeferRender(time.Now()) {
+			fm.needsRender.Store(true)
+		} else {
+			fm.renderPhase()
+			fm.lastRender = time.Now()
+		}
 	}
 
 	var e *vtinput.InputEvent
@@ -3599,4 +3605,17 @@ func (fm *frameManager) isGUI() bool {
 		}
 	}
 	return false
+}
+
+// pasteRenderGap is the longest the screen stays as it was while the keys of a
+// paste are still coming.
+const pasteRenderGap = 50 * time.Millisecond
+
+// shouldDeferRender reports whether the redraw can wait for the keys that are
+// already queued: during a bracketed paste, with more events waiting, and the
+// last drawing not older than pasteRenderGap. Drawing the whole screen after
+// every character of a paste (docs/FAR2L_COMPAT.md, B-01) made a paste of
+// 100 KiB into the command line of f4 take 16 seconds (unxed/f4#2157).
+func (fm *frameManager) shouldDeferRender(now time.Time) bool {
+	return fm.pasting && len(fm.EventChan) > 0 && now.Sub(fm.lastRender) < pasteRenderGap
 }
