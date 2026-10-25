@@ -192,15 +192,55 @@ func TestCmapCoverage_CollectionReadsTheFirstFace(t *testing.T) {
 	}
 }
 
+// withCmapRecord returns a one-table font whose cmap record is rewritten:
+// the table directory claims off and length, whatever the file holds.
+func withCmapRecord(off, length uint32) []byte {
+	data := sfntFile([2]string{"cmap", cmapTable(cmapRecord{3, 1, cmapFormat4(format4Segment{start: 'A', end: 'A', delta: 1})})})
+	binary.BigEndian.PutUint32(data[12+8:], off)
+	binary.BigEndian.PutUint32(data[12+12:], length)
+	return data
+}
+
+// fontWithSubtable is a font whose only cmap subtable is sub, raw.
+func fontWithSubtable(sub []byte) []byte {
+	return sfntFile([2]string{"cmap", cmapTable(cmapRecord{3, 1, sub})})
+}
+
+func ttcHeader(fields ...uint32) []byte {
+	var out bytes.Buffer
+	out.WriteString("ttcf")
+	_ = binary.Write(&out, binary.BigEndian, fields)
+	return out.Bytes()
+}
+
+type failingReaderAt struct{ err error }
+
+func (r failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }
+
+// The scan reads whatever files the lists and discovery name, so damage must
+// end in an error, which sends the file to the parse, and never in a panic.
 func TestCmapCoverage_RejectsWhatIsNotAFont(t *testing.T) {
 	noCmap := sfntFile([2]string{"head", "...."})
-	unknownFormat := sfntFile([2]string{"cmap", cmapTable(cmapRecord{3, 1, []byte{0, 2, 0, 0}})})
+	format4 := cmapFormat4(format4Segment{start: 'A', end: 'B', delta: 1})
 	for name, data := range map[string][]byte{
-		"text":           []byte("not a font, just text"),
-		"empty":          nil,
-		"no cmap":        noCmap,
-		"unknown format": unknownFormat,
-		"truncated":      noCmap[:20],
+		"text":                       []byte("not a font, just text"),
+		"empty":                      nil,
+		"no cmap":                    noCmap,
+		"unknown format":             fontWithSubtable([]byte{0, 2, 0, 0}),
+		"truncated":                  noCmap[:20],
+		"collection without fonts":   ttcHeader(0x00010000, 0),
+		"collection cut after count": ttcHeader(0x00010000, 1),
+		"collection face past EOF":   ttcHeader(0x00010000, 1, 4096),
+		"cmap over the size limit":   withCmapRecord(28, maxCmapTableSize+1),
+		"cmap past EOF":              withCmapRecord(4096, 64),
+		"cmap too short":             sfntFile([2]string{"cmap", "\x00"}),
+		"encoding records cut":       sfntFile([2]string{"cmap", "\x00\x00\x00\x05"}),
+		"subtable of one byte":       sfntFile([2]string{"cmap", "\x00\x00\x00\x01\x00\x03\x00\x01\x00\x00\x00\x0c\x00"}),
+		"format 4 header cut":        fontWithSubtable(format4[:10]),
+		"format 4 arrays cut":        fontWithSubtable(format4[:16]),
+		"format 6 header cut":        fontWithSubtable([]byte{0, 6, 0, 0}),
+		"format 6 entries cut":       fontWithSubtable([]byte{0, 6, 0, 0, 0, 0, 0, 'a', 0, 9, 0, 1}),
+		"format 12 header cut":       fontWithSubtable(cmapGroups(12)[:12]),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := fontCoverage(bytes.NewReader(data)); err == nil {
@@ -208,6 +248,43 @@ func TestCmapCoverage_RejectsWhatIsNotAFont(t *testing.T) {
 			}
 		})
 	}
+
+	ioErr := errors.New("device gone")
+	if _, err := fontCoverage(failingReaderAt{ioErr}); !errors.Is(err, ioErr) {
+		t.Errorf("a read error = %v, want it passed through", err)
+	}
+}
+
+func TestCmapCoverage_Format6(t *testing.T) {
+	// firstCode 'a', glyphs 3, 0, 5: 'b' maps to .notdef.
+	sub := []byte{0, 6, 0, 16, 0, 0, 0, 'a', 0, 3, 0, 3, 0, 0, 0, 5}
+	if got := string(coveredRunes(coverageOfBytes(t, fontWithSubtable(sub)))); got != "ac" {
+		t.Errorf("covered = %q, want %q", got, "ac")
+	}
+}
+
+// Damage inside a subtable the scan can still bound costs the runes it
+// touches, not the font.
+func TestCmapCoverage_ToleratesDamageInsideASubtable(t *testing.T) {
+	t.Run("idRangeOffset past the table", func(t *testing.T) {
+		sub := cmapFormat4(
+			format4Segment{start: 'A', end: 'A', delta: 1},
+			format4Segment{start: 'x', end: 'x', glyphs: []uint16{7}},
+		)
+		// segCount 3: idRangeOffset[1] sits at 14 + 3*2*3 + 2 + 2.
+		binary.BigEndian.PutUint16(sub[14+3*2*3+2+2:], 0xFFF0)
+		if got := string(coveredRunes(coverageOfBytes(t, fontWithSubtable(sub)))); got != "A" {
+			t.Errorf("covered = %q, want only %q", got, "A")
+		}
+	})
+	t.Run("more format 12 groups claimed than present", func(t *testing.T) {
+		sub := cmapGroups(12, [3]uint32{0x1F600, 0x1F601, 1})
+		binary.BigEndian.PutUint32(sub[12:], 1000)
+		got := coveredRunes(coverageOfBytes(t, fontWithSubtable(sub)))
+		if want := []rune{0x1F600, 0x1F601}; string(got) != string(want) {
+			t.Errorf("covered = %U, want %U", got, want)
+		}
+	})
 }
 
 // A color bitmap font maps its emoji and draws none of them through gg or
@@ -359,6 +436,44 @@ func TestChain_WarmScansWithoutOpening(t *testing.T) {
 	}
 	if scans.Load() != 3 {
 		t.Errorf("warm scanned %d fonts, want 3", scans.Load())
+	}
+}
+
+func TestRuneCoverage_SetSkipsWhatACmapCannotHold(t *testing.T) {
+	cov := &runeCoverage{}
+	for _, r := range []rune{-1, 0xD800, 0xDFFF, runeCoverageMax, 'a', 0x10FFFF} {
+		cov.set(r)
+	}
+	if got := coveredRunes(cov); string(got) != string([]rune{'a', 0x10FFFF}) {
+		t.Errorf("covered = %U, want only U+0061 and U+10FFFF", got)
+	}
+}
+
+func TestChain_WarmParsesWhatTheScanCannotRead(t *testing.T) {
+	chain, opens, _ := scannedChain(t, map[string]string{"/odd.ttf": "x", "/b.ttf": "b"}, "/odd.ttf")
+	chain.entries = []fontFallbackEntry{{path: "/odd.ttf"}, {path: "/b.ttf"}}
+
+	chain.warm()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		chain.mu.Lock()
+		done := chain.entries[0].cov != nil && chain.entries[1].cov != nil
+		chain.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("warm did not give every entry its coverage")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	chain.mu.Lock()
+	defer chain.mu.Unlock()
+	if !chain.entries[0].unscanned || !chain.entries[0].cov.has('x') {
+		t.Errorf("the unreadable font must be parsed for its coverage: %+v", chain.entries[0])
+	}
+	if *opens != 1 {
+		t.Errorf("warm opened %d fonts, want only the one the scan could not read", *opens)
 	}
 }
 
