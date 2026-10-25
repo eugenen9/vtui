@@ -33,6 +33,7 @@ func newGogpuFallbackChain(size float64) *fontFallbackChain {
 			}
 			return src.Face(size), nil
 		},
+		scan:    cmapCoverage,
 		covers:  hasGlyph,
 		renders: hasGlyph,
 		drop:    func(any) {},
