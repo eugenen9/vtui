@@ -24,6 +24,13 @@ import (
 // missing file costs one failed stat, whereas a narrow font that happens to
 // be listed first would answer for glyphs a later, wider font renders better.
 //
+// The exception is a small font that carries the symbols a text UI draws:
+// arrows, triangles, shapes. Nearly every font on the list has those, so the
+// first one listed answers for them and stays in memory for the session.
+// After the CJK collections that is tens of megabytes for one arrow; ahead of
+// them, a couple. Such a font has no ideographs, so CJK text still reaches
+// the wide fonts.
+//
 // The list is deliberately long. Distributions disagree about where Noto CJK
 // lives, and a Windows install outside a CJK locale has none of the Japanese
 // supplemental fonts, so a short list quietly degrades to no fallback at all.
@@ -72,7 +79,12 @@ var fallbackFontPaths = []string{
 	`C:\Windows\Fonts\seguiemj.ttf`,
 	`C:\Windows\Fonts\seguisym.ttf`,
 	`C:\Windows\Fonts\segoeui.ttf`,
-	// macOS
+	// macOS — the symbols first. Monaco, the default monospace, has almost
+	// none of them (↑ ▸ ■ ♪ ░); Menlo and Apple Symbols carry them in 3 MB,
+	// where every font after them that does weighs 22 MB or more.
+	"/System/Library/Fonts/Menlo.ttc",
+	"/System/Library/Fonts/Apple Symbols.ttf",
+	// macOS — CJK, emoji and the widest coverage
 	"/System/Library/Fonts/PingFang.ttc",
 	"/System/Library/Fonts/Hiragino Sans GB.ttc",
 	"/System/Library/Fonts/AppleSDGothicNeo.ttc",
