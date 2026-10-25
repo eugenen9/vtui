@@ -15,6 +15,11 @@ import (
 // a damaged file, and the parse path is the place to reject it.
 const maxCmapTableSize = 8 << 20
 
+// errColorBitmapFont is cmapCoverage's answer for a font whose glyphs are
+// color bitmaps. Neither renderer draws one: gg and x/image both rasterize
+// outlines only.
+var errColorBitmapFont = errors.New("glyphs are color bitmaps")
+
 // cmapCoverage reads which runes a font file maps to a glyph from its cmap
 // table alone: the file header, the table directory and the cmap itself, a few
 // kilobytes to a few hundred, never the glyph data. A collection answers for
@@ -29,11 +34,46 @@ func cmapCoverage(path string) (*runeCoverage, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	table, err := readCmapTable(f)
+	return fontCoverage(f)
+}
+
+// fontCoverage is cmapCoverage over an open file.
+func fontCoverage(r io.ReaderAt) (*runeCoverage, error) {
+	tables, err := readTableDirectory(r)
 	if err != nil {
 		return nil, err
 	}
+	if colorBitmapFont(tables) {
+		return nil, errColorBitmapFont
+	}
+	cmap, ok := tables["cmap"]
+	if !ok {
+		return nil, errors.New("no cmap table")
+	}
+	if cmap.length > maxCmapTableSize {
+		return nil, fmt.Errorf("cmap table of %d bytes", cmap.length)
+	}
+	table := make([]byte, cmap.length)
+	if err := readAtFull(r, table, cmap.off); err != nil {
+		return nil, err
+	}
 	return parseCmapCoverage(table)
+}
+
+// colorBitmapFont reports whether a font's glyphs are color bitmaps: an sbix
+// (Apple) or CBDT (Google) table carrying more data than its outlines. Such a
+// font maps every emoji in its cmap and draws none of them here, while
+// keeping it costs the whole file: Apple Color Emoji is 183 MB, which gg held
+// twice for the first emoji on screen. The comparison, rather than the mere
+// presence of the table, keeps an outline font with a few bitmap glyphs.
+//
+// What is lost is the handful of outline glyphs such a font carries besides
+// its bitmaps: in Apple Color Emoji the regional indicator letters and the
+// keycap mark; its ♀ ♂ ⚕ and digits are in the fonts listed before it.
+func colorBitmapFont(tables map[string]sfntTable) bool {
+	bitmaps := int64(tables["sbix"].length) + int64(tables["CBDT"].length)
+	outlines := int64(tables["glyf"].length) + int64(tables["CFF "].length) + int64(tables["CFF2"].length)
+	return bitmaps > outlines
 }
 
 // readAtFull fills p from off, accepting the io.EOF a ReaderAt may return
@@ -49,9 +89,15 @@ func readAtFull(r io.ReaderAt, p []byte, off int64) error {
 	return err
 }
 
-// readCmapTable returns the bytes of the cmap table of an sfnt file (TrueType,
-// OpenType, or a collection of either).
-func readCmapTable(r io.ReaderAt) ([]byte, error) {
+// sfntTable is where a table sits in a font file.
+type sfntTable struct {
+	off    int64
+	length uint32
+}
+
+// readTableDirectory returns the tables of an sfnt file (TrueType, OpenType,
+// or the first face of a collection of either) by tag.
+func readTableDirectory(r io.ReaderAt) (map[string]sfntTable, error) {
 	var hdr [12]byte
 	if err := readAtFull(r, hdr[:], 0); err != nil {
 		return nil, err
@@ -81,23 +127,15 @@ func readCmapTable(r io.ReaderAt) ([]byte, error) {
 	if err := readAtFull(r, dir, base+12); err != nil {
 		return nil, err
 	}
+	tables := make(map[string]sfntTable, numTables)
 	for i := 0; i < numTables; i++ {
 		rec := dir[i*16 : i*16+16]
-		if string(rec[:4]) != "cmap" {
-			continue
+		tables[string(rec[:4])] = sfntTable{
+			off:    int64(binary.BigEndian.Uint32(rec[8:12])),
+			length: binary.BigEndian.Uint32(rec[12:16]),
 		}
-		off := int64(binary.BigEndian.Uint32(rec[8:12]))
-		length := binary.BigEndian.Uint32(rec[12:16])
-		if length > maxCmapTableSize {
-			return nil, fmt.Errorf("cmap table of %d bytes", length)
-		}
-		table := make([]byte, length)
-		if err := readAtFull(r, table, off); err != nil {
-			return nil, err
-		}
-		return table, nil
 	}
-	return nil, errors.New("no cmap table")
+	return tables, nil
 }
 
 // parseCmapCoverage builds the coverage of a cmap table.

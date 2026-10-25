@@ -3,6 +3,7 @@
 package vtui
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -361,6 +362,14 @@ func (c *fontFallbackChain) scanLocked(e *fontFallbackEntry) bool {
 	}
 	t0 := time.Now()
 	cov, err := c.scan(e.path)
+	if errors.Is(err, errColorBitmapFont) {
+		// Nothing in it can be drawn: covering nothing passes it over for
+		// good, and it is never opened. Parsing it to learn that would cost
+		// the whole file, which for Apple Color Emoji is 183 MB.
+		e.cov = &runeCoverage{}
+		DebugLog("%s: fallback passed over, its glyphs are color bitmaps: %s", c.logTag, e.path)
+		return true
+	}
 	if err != nil {
 		e.unscanned = true
 		DebugLog("%s: fallback coverage unreadable, the font will be parsed for it: %s: %v", c.logTag, e.path, err)

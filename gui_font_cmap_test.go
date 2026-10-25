@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -121,13 +122,9 @@ func cmapGroups(format uint16, groups ...[3]uint32) []byte {
 
 func coverageOfBytes(t *testing.T, data []byte) *runeCoverage {
 	t.Helper()
-	table, err := readCmapTable(bytes.NewReader(data))
+	cov, err := fontCoverage(bytes.NewReader(data))
 	if err != nil {
-		t.Fatalf("readCmapTable: %v", err)
-	}
-	cov, err := parseCmapCoverage(table)
-	if err != nil {
-		t.Fatalf("parseCmapCoverage: %v", err)
+		t.Fatalf("fontCoverage: %v", err)
 	}
 	return cov
 }
@@ -206,12 +203,38 @@ func TestCmapCoverage_RejectsWhatIsNotAFont(t *testing.T) {
 		"truncated":      noCmap[:20],
 	} {
 		t.Run(name, func(t *testing.T) {
-			table, err := readCmapTable(bytes.NewReader(data))
-			if err == nil {
-				_, err = parseCmapCoverage(table)
-			}
-			if err == nil {
+			if _, err := fontCoverage(bytes.NewReader(data)); err == nil {
 				t.Error("want an error")
+			}
+		})
+	}
+}
+
+// A color bitmap font maps its emoji and draws none of them through gg or
+// x/image; the scan refuses it so that the chain never opens it. An outline
+// font with a few bitmap glyphs stays a font.
+func TestCmapCoverage_RefusesColorBitmapFonts(t *testing.T) {
+	cmap := cmapTable(cmapRecord{3, 10, cmapGroups(12, [3]uint32{0x1F600, 0x1F64F, 1})})
+	big, small := strings.Repeat("b", 4096), strings.Repeat("o", 64)
+	for name, tc := range map[string]struct {
+		data    []byte
+		refused bool
+	}{
+		"sbix over a token glyf (Apple)":  {sfntFile([2]string{"cmap", cmap}, [2]string{"glyf", small}, [2]string{"sbix", big}), true},
+		"CBDT without outlines (Noto)":    {sfntFile([2]string{"cmap", cmap}, [2]string{"CBDT", big}), true},
+		"outlines with a few bitmaps":     {sfntFile([2]string{"cmap", cmap}, [2]string{"glyf", big}, [2]string{"sbix", small}), false},
+		"CFF outlines with a few bitmaps": {sfntFile([2]string{"cmap", cmap}, [2]string{"CFF ", big}, [2]string{"CBDT", small}), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cov, err := fontCoverage(bytes.NewReader(tc.data))
+			if tc.refused {
+				if !errors.Is(err, errColorBitmapFont) {
+					t.Fatalf("err = %v, want errColorBitmapFont", err)
+				}
+				return
+			}
+			if err != nil || !cov.has(0x1F600) {
+				t.Fatalf("an outline font must keep its coverage: err = %v", err)
 			}
 		})
 	}
@@ -359,5 +382,35 @@ func TestChain_UnreadableCoverageFallsBackToTheParse(t *testing.T) {
 	chain.faceFor('q')
 	if *opens != 2 || scans.Load() != before {
 		t.Errorf("after a miss: opens = %d, scans = %d, want 2 and %d", *opens, scans.Load(), before)
+	}
+}
+
+func TestChain_NeverOpensAColorBitmapFont(t *testing.T) {
+	chain, opens, scans := scannedChain(t, map[string]string{"/Emoji.ttc": "😀♀", "/Symbols.ttf": "♀"})
+	scan := chain.scan
+	chain.scan = func(path string) (*runeCoverage, error) {
+		if path == "/Emoji.ttc" {
+			scans.Add(1)
+			return nil, errColorBitmapFont
+		}
+		return scan(path)
+	}
+	chain.entries = []fontFallbackEntry{{path: "/Emoji.ttc"}, {path: "/Symbols.ttf"}}
+
+	if face, _ := chain.faceFor('♀').(*fakeFace); face == nil || face.path != "/Symbols.ttf" {
+		t.Fatalf("faceFor('♀') = %#v, want the symbol font after the emoji font", face)
+	}
+	if chain.faceFor('😀') != nil {
+		t.Error("nothing can draw 😀 here, so nothing may be returned for it")
+	}
+	emoji := chain.entries[0]
+	if emoji.unscanned || emoji.cov == nil {
+		t.Errorf("the emoji font must be passed over by its scan, not left to the parse: %+v", emoji)
+	}
+	if *opens != 1 {
+		t.Errorf("fonts opened = %d, want only the symbol font", *opens)
+	}
+	if scans.Load() != 2 {
+		t.Errorf("scans = %d, want one per font", scans.Load())
 	}
 }
