@@ -4,9 +4,71 @@ package vtui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gogpu/gg/text"
 )
+
+// StepBlink blinks the caret on the frame the renderer holds: it flips the
+// phase when due and marks the canvas dirty, says when the next flip is due,
+// and holds the caret still and drawn while it is hidden, steady or the
+// window is unfocused.
+func TestGogpuStepBlink(t *testing.T) {
+	r := NewGogpuRenderer(&GogpuHost{}, nil, 8, 16)
+	r.SetCursor(1, 1, true, CursorShapeBlock)
+	t0 := time.Now()
+	r.mu.Lock()
+	r.lastBlinkTime, r.blinkState, r.lastBlinkState, r.dirty = t0, true, true, false
+	r.mu.Unlock()
+	state := func() (blink, dirty bool) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.blinkState, r.dirty
+	}
+
+	if wait := r.StepBlink(t0.Add(100*time.Millisecond), true); wait != softwareBlinkPeriod-100*time.Millisecond {
+		t.Errorf("wait before the flip = %v, want %v", wait, softwareBlinkPeriod-100*time.Millisecond)
+	}
+	if blink, dirty := state(); !blink || dirty {
+		t.Errorf("before the flip: caret on = %v, dirty = %v; want on, clean", blink, dirty)
+	}
+
+	if wait := r.StepBlink(t0.Add(softwareBlinkPeriod), true); wait != softwareBlinkPeriod {
+		t.Errorf("wait after the flip = %v, want %v", wait, softwareBlinkPeriod)
+	}
+	if blink, dirty := state(); blink || !dirty {
+		t.Errorf("at the flip: caret on = %v, dirty = %v; want off, dirty", blink, dirty)
+	}
+
+	r.mu.Lock()
+	r.dirty = false
+	r.mu.Unlock()
+	if wait := r.StepBlink(t0.Add(softwareBlinkPeriod+time.Millisecond), false); wait != 0 {
+		t.Errorf("unfocused wait = %v, want 0", wait)
+	}
+	if blink, dirty := state(); !blink || !dirty {
+		t.Errorf("unfocused: caret on = %v, dirty = %v; want on (held), dirty", blink, dirty)
+	}
+	// A render while unfocused must not blink it off again.
+	r.mu.Lock()
+	r.stepBlinkLocked(t0.Add(10 * softwareBlinkPeriod))
+	r.mu.Unlock()
+	if blink, _ := state(); !blink {
+		t.Error("a render while unfocused blinked the caret off")
+	}
+
+	r.SetCursor(1, 1, false, CursorShapeBlock)
+	if wait := r.StepBlink(time.Now(), true); wait != 0 {
+		t.Errorf("hidden caret wait = %v, want 0", wait)
+	}
+
+	r.SetCursor(1, 1, true, CursorShapeBlock)
+	cursorSteady.Store(true)
+	defer cursorSteady.Store(false)
+	if wait := r.StepBlink(time.Now(), true); wait != 0 {
+		t.Errorf("steady caret wait = %v, want 0", wait)
+	}
+}
 
 func TestGogpuBatchRune(t *testing.T) {
 	cases := []struct {

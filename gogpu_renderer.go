@@ -76,6 +76,7 @@ type GogpuRenderer struct {
 	lastBlinkState   bool
 	blinkState       bool
 	lastBlinkTime    time.Time
+	unfocused        bool // the window lost the keyboard: the caret holds still (StepBlink)
 
 	canvas    *ggcanvas.Canvas
 	renderBuf []CharInfo
@@ -296,7 +297,7 @@ func (r *GogpuRenderer) Render(buf, shadow []CharInfo, w, h int, force bool) {
 		}
 	}
 
-	stepSoftwareBlink(&r.blinkState, &r.lastBlinkTime, time.Now())
+	r.stepBlinkLocked(time.Now())
 
 	if !needsRedraw && r.cursorVis {
 		if r.blinkState != r.lastBlinkState {
@@ -314,6 +315,41 @@ func (r *GogpuRenderer) Render(buf, shadow []CharInfo, w, h int, force bool) {
 	}
 	copy(r.renderBuf, buf)
 	r.dirty = true
+}
+
+// stepBlinkLocked advances the blink phase to now. While the window is
+// unfocused the caret holds still and drawn. The caller holds r.mu.
+func (r *GogpuRenderer) stepBlinkLocked(now time.Time) {
+	if r.unfocused {
+		r.blinkState = true
+		r.lastBlinkTime = now
+		return
+	}
+	stepSoftwareBlink(&r.blinkState, &r.lastBlinkTime, now)
+}
+
+// StepBlink implements blinkStepper: the idle heartbeat blinks the caret here,
+// on the frame already drawn, instead of asking for a new screen. When the
+// phase flips, the canvas is marked dirty and Flush asks gogpu for a frame,
+// exactly as after a render.
+func (r *GogpuRenderer) StepBlink(now time.Time, focused bool) time.Duration {
+	r.mu.Lock()
+	r.unfocused = !focused
+	r.stepBlinkLocked(now)
+	changed := r.cursorVis && r.blinkState != r.lastBlinkState
+	if changed {
+		r.lastBlinkState = r.blinkState
+		r.dirty = true
+	}
+	var wait time.Duration
+	if r.cursorVis && focused && CursorBlinks() {
+		wait = max(softwareBlinkPeriod-now.Sub(r.lastBlinkTime), time.Millisecond)
+	}
+	r.mu.Unlock()
+	if changed {
+		r.Flush()
+	}
+	return wait
 }
 
 func (r *GogpuRenderer) SetCursor(x, y int, visible bool, shape CursorShape) {
