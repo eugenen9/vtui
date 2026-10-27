@@ -42,6 +42,24 @@ func newGogpuFallbackChain(size float64) *fontFallbackChain {
 	}
 }
 
+// disableMSAA asks the gg accelerator to render without multi-sampling, and
+// reports whether it could ask. Everything this renderer draws is glyph-mask
+// text and pixel-aligned cells, and a window looks the same byte for byte
+// without MSAA, box drawing, diagonals and shades included. Its 4x color and
+// depth/stencil targets cost about 37 bytes per window pixel, about 120 MB of
+// GPU memory at 2060x1638.
+//
+// It asks through the method of gg.SampleCountAware rather than through
+// gg.SetAcceleratorMaxSampleCount (gogpu/gg#547), so vtui builds with gg
+// releases that predate both and takes effect with any release that has them.
+func disableMSAA(accel any) bool {
+	a, ok := accel.(interface{ SetMaxSampleCount(n int) })
+	if ok {
+		a.SetMaxSampleCount(1)
+	}
+	return ok
+}
+
 type GogpuRenderer struct {
 	mu           sync.Mutex
 	host         *GogpuHost
@@ -988,6 +1006,9 @@ func (r *GogpuRenderer) DrawToScreen(ctx *gogpu.Context) {
 		if provider == nil {
 			return
 		}
+		// Before ggcanvas.New: it hands gg the device, and gg settles its
+		// sample count then.
+		disableMSAA(gg.Accelerator())
 		r.canvas, _ = ggcanvas.New(provider, w, h)
 	}
 

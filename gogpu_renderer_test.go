@@ -150,3 +150,23 @@ func TestGogpuRenderer_CursorShapeState(t *testing.T) {
 		t.Errorf("Expected CursorShapeUnderline, got %v", r.cursorShape)
 	}
 }
+
+type sampleCountAccel struct{ caps []int }
+
+func (a *sampleCountAccel) SetMaxSampleCount(n int) { a.caps = append(a.caps, n) }
+
+// disableMSAA asks for 1x from an accelerator that takes a sample count cap,
+// and leaves alone one that does not, or none: gg releases before the cap
+// have no such method, and vtui must build and run with them.
+func TestDisableMSAA(t *testing.T) {
+	a := &sampleCountAccel{}
+	if !disableMSAA(a) || len(a.caps) != 1 || a.caps[0] != 1 {
+		t.Errorf("disableMSAA(capable) asked for %v, want [1]", a.caps)
+	}
+	if disableMSAA(struct{}{}) {
+		t.Error("disableMSAA reported asking an accelerator without the method")
+	}
+	if disableMSAA(nil) {
+		t.Error("disableMSAA reported asking a nil accelerator")
+	}
+}
