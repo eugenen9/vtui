@@ -21,7 +21,9 @@ import (
 
 // newGogpuFallbackChain binds the shared fallback chain (gui_font.go) to gg
 // faces. gg's HasGlyph reflects what DrawString can actually draw, so covers
-// and renders coincide here, unlike on the x/image side.
+// and renders coincide here, unlike on the x/image side. The exception is a
+// color bitmap glyph (sbix, CBDT), which gg maps and draws as nothing; the
+// chain's scan passes such fonts over before they are opened.
 func newGogpuFallbackChain(size float64) *fontFallbackChain {
 	hasGlyph := func(face any, r rune) bool { return face.(text.Face).HasGlyph(r) }
 	return &fontFallbackChain{
@@ -33,6 +35,7 @@ func newGogpuFallbackChain(size float64) *fontFallbackChain {
 			}
 			return src.Face(size), nil
 		},
+		scan:    cmapCoverage,
 		covers:  hasGlyph,
 		renders: hasGlyph,
 		drop:    func(any) {},
